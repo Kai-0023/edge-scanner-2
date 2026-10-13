@@ -29,8 +29,23 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 
 - `GET /health` verifies that the API is running.
 - `GET /analyze/nba?player=LeBron%20James` or `GET /analyze/nfl?player=...` routes a request to the selected sport.
-- `GET /live/nba` and `GET /live/nfl` explain the current live-odds connection status. They do not scrape any websites.
+- `GET /live/nba` and `GET /live/nfl` compare available U.S. sportsbook lines through The Odds API after you configure your own key. Responses are cached for 60 seconds to preserve API credits.
 
 ## Live-data note
 
 The live routes are intentionally disabled until you add a licensed odds-data provider and its API key in `.env`. Do not scrape sportsbook websites. Only use an API if your account and the provider's terms authorize the intended use, and follow its rate limits.
+
+To enable the legal comparison route, create an authorized The Odds API account and add its key locally:
+
+```text
+THE_ODDS_API_KEY=your_key_here
+```
+
+Then try one of these URLs after starting FastAPI:
+
+```text
+http://127.0.0.1:8000/live/nba
+http://127.0.0.1:8000/live/nfl?bookmakers=draftkings,fanduel
+```
+
+The second URL requests only the named bookmakers when they are included in your provider's coverage. Check the provider terms before publicly redistributing raw odds data.
