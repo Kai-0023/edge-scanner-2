@@ -29,5 +29,8 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 
 - `GET /health` verifies that the API is running.
 - `GET /analyze/nba?player=LeBron%20James` or `GET /analyze/nfl?player=...` routes a request to the selected sport.
+- `GET /live/nba` and `GET /live/nfl` explain the current live-odds connection status. They do not scrape any websites.
 
-The scraper modules are intentionally safe placeholders. Add the provider-specific requests only after you have the appropriate API credentials and have reviewed that provider's terms.
+## Live-data note
+
+The live routes are intentionally disabled until you add a licensed odds-data provider and its API key in `.env`. Do not scrape sportsbook websites. Only use an API if your account and the provider's terms authorize the intended use, and follow its rate limits.
