@@ -49,3 +49,12 @@ http://127.0.0.1:8000/live/nfl?bookmakers=draftkings,fanduel
 ```
 
 The second URL requests only the named bookmakers when they are included in your provider's coverage. Check the provider terms before publicly redistributing raw odds data.
+
+## Baseline projections
+
+The API includes transparent starter models. They do **not** fetch historical or injury data automatically yet. Instead, they calculate a projection from factors you supply, so their assumptions stay visible and testable.
+
+- `POST /projection/nba` uses offensive/defensive rating, recent net rating, pace, rest, and a point-based injury adjustment.
+- `POST /projection/nfl` uses points scored/allowed, recent performance, rest, quarterback adjustment, injury adjustment, and weather adjustment.
+
+Use `/docs` to enter test values. An injury adjustment is a point estimate: negative when an absence hurts that team and positive when its opponent is missing a key player. Validate all factors against historical games before relying on model outputs.

@@ -7,9 +7,11 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from logic.nba_logic import nba_player_summary
 from logic.nfl_logic import nfl_player_summary
+from logic.projection_models import nfl_projection, nba_projection
 from scrapers.odds_scraper import OddsProviderUnavailable, fetch_odds_comparison
 
 
@@ -28,6 +30,39 @@ def dashboard() -> FileResponse:
     """Serve the local sportsbook-comparison dashboard."""
 
     return FileResponse(FRONTEND_DIRECTORY / "index.html")
+
+
+class NbaTeamFactors(BaseModel):
+    """Historical and availability factors for one NBA team."""
+
+    offensive_rating: float = Field(description="Historical points scored per 100 possessions.")
+    defensive_rating: float = Field(description="Historical points allowed per 100 possessions.")
+    recent_net_rating: float = Field(default=0, description="Recent points-for minus points-against per 100 possessions.")
+    pace: float = Field(default=100, description="Possessions per game.")
+    rest_days: int = Field(default=1, ge=0, le=14)
+    injury_adjustment: float = Field(default=0, description="Negative when absences hurt the team.")
+
+
+class NbaProjectionRequest(BaseModel):
+    home: NbaTeamFactors
+    away: NbaTeamFactors
+
+
+class NflTeamFactors(BaseModel):
+    """Historical and availability factors for one NFL team."""
+
+    offense_points: float = Field(description="Historical points scored per game.")
+    defense_points_allowed: float = Field(description="Historical points allowed per game.")
+    recent_rating: float = Field(default=0, description="A recent-performance point rating.")
+    rest_days: int = Field(default=7, ge=0, le=21)
+    qb_adjustment: float = Field(default=0, description="Point value of the current QB situation.")
+    injury_adjustment: float = Field(default=0, description="Other player-availability point adjustment.")
+    weather_adjustment: float = Field(default=0, description="Weather point adjustment for the team.")
+
+
+class NflProjectionRequest(BaseModel):
+    home: NflTeamFactors
+    away: NflTeamFactors
 
 
 @app.get("/health")
@@ -51,6 +86,34 @@ def analyze(
         return nfl_player_summary(player)
 
     raise HTTPException(status_code=400, detail="League must be 'nba' or 'nfl'.")
+
+
+@app.post("/projection/nba")
+def project_nba_game(data: NbaProjectionRequest) -> dict[str, Any]:
+    """Calculate a transparent NBA baseline projection from supplied factors."""
+
+    return {
+        "model": "NBA baseline efficiency, pace, form, rest, and injury model",
+        "inputs_are_user_supplied": True,
+        "projection": nba_projection(
+            **{f"home_{key}": value for key, value in data.home.model_dump().items()},
+            **{f"away_{key}": value for key, value in data.away.model_dump().items()},
+        ),
+    }
+
+
+@app.post("/projection/nfl")
+def project_nfl_game(data: NflProjectionRequest) -> dict[str, Any]:
+    """Calculate a transparent NFL baseline projection from supplied factors."""
+
+    return {
+        "model": "NFL baseline performance, QB, injury, rest, and weather model",
+        "inputs_are_user_supplied": True,
+        "projection": nfl_projection(
+            **{f"home_{key}": value for key, value in data.home.model_dump().items()},
+            **{f"away_{key}": value for key, value in data.away.model_dump().items()},
+        ),
+    }
 
 
 @app.get("/live/{league}")
