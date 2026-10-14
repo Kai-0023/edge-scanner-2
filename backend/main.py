@@ -9,10 +9,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from backend.database import database_status, initialize_database, save_injuries, save_odds_events, save_projection
 from logic.nba_logic import nba_player_summary
 from logic.nfl_logic import nfl_player_summary
 from logic.projection_models import nfl_projection, nba_projection
 from scrapers.odds_scraper import OddsProviderUnavailable, fetch_odds_comparison
+from scrapers.sportsdata_scraper import SportsDataUnavailable, fetch_injuries
 
 
 app = FastAPI(title="Edge Scanner 2", version="0.2.0")
@@ -22,6 +24,7 @@ odds_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIRECTORY = PROJECT_ROOT / "frontend"
 
+initialize_database()
 app.mount("/static", StaticFiles(directory=FRONTEND_DIRECTORY), name="static")
 
 
@@ -44,6 +47,7 @@ class NbaTeamFactors(BaseModel):
 
 
 class NbaProjectionRequest(BaseModel):
+    game_id: str | None = Field(default=None, description="Optional provider game ID used to link stored snapshots.")
     home: NbaTeamFactors
     away: NbaTeamFactors
 
@@ -61,6 +65,7 @@ class NflTeamFactors(BaseModel):
 
 
 class NflProjectionRequest(BaseModel):
+    game_id: str | None = Field(default=None, description="Optional provider game ID used to link stored snapshots.")
     home: NflTeamFactors
     away: NflTeamFactors
 
@@ -70,6 +75,13 @@ def health() -> dict[str, str]:
     """Return a small response that confirms the API is running."""
 
     return {"status": "ok"}
+
+
+@app.get("/data/status")
+def data_status() -> dict[str, int]:
+    """Show how many local pipeline snapshots have been saved."""
+
+    return database_status()
 
 
 @app.get("/analyze/{league}")
@@ -92,13 +104,16 @@ def analyze(
 def project_nba_game(data: NbaProjectionRequest) -> dict[str, Any]:
     """Calculate a transparent NBA baseline projection from supplied factors."""
 
+    model_name = "NBA baseline efficiency, pace, form, rest, and injury model"
+    projection = nba_projection(
+        **{f"home_{key}": value for key, value in data.home.model_dump().items()},
+        **{f"away_{key}": value for key, value in data.away.model_dump().items()},
+    )
+    save_projection("nba", model_name, data.model_dump(), projection, data.game_id)
     return {
-        "model": "NBA baseline efficiency, pace, form, rest, and injury model",
+        "model": model_name,
         "inputs_are_user_supplied": True,
-        "projection": nba_projection(
-            **{f"home_{key}": value for key, value in data.home.model_dump().items()},
-            **{f"away_{key}": value for key, value in data.away.model_dump().items()},
-        ),
+        "projection": projection,
     }
 
 
@@ -106,13 +121,38 @@ def project_nba_game(data: NbaProjectionRequest) -> dict[str, Any]:
 def project_nfl_game(data: NflProjectionRequest) -> dict[str, Any]:
     """Calculate a transparent NFL baseline projection from supplied factors."""
 
+    model_name = "NFL baseline performance, QB, injury, rest, and weather model"
+    projection = nfl_projection(
+        **{f"home_{key}": value for key, value in data.home.model_dump().items()},
+        **{f"away_{key}": value for key, value in data.away.model_dump().items()},
+    )
+    save_projection("nfl", model_name, data.model_dump(), projection, data.game_id)
     return {
-        "model": "NFL baseline performance, QB, injury, rest, and weather model",
+        "model": model_name,
         "inputs_are_user_supplied": True,
-        "projection": nfl_projection(
-            **{f"home_{key}": value for key, value in data.home.model_dump().items()},
-            **{f"away_{key}": value for key, value in data.away.model_dump().items()},
-        ),
+        "projection": projection,
+    }
+
+
+@app.post("/sync/injuries/{league}")
+async def sync_injuries(
+    league: str,
+    season: str | None = Query(default=None, description="NFL season such as 2026REG."),
+    week: int | None = Query(default=None, ge=0, le=25, description="NFL week number."),
+) -> dict[str, Any]:
+    """Fetch and timestamp authorized injury records in the local database."""
+
+    try:
+        injuries = await fetch_injuries(league, season, week)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SportsDataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {
+        "league": league.lower(),
+        "injuries_received": len(injuries),
+        "snapshots_saved": save_injuries(league.lower(), injuries),
     }
 
 
@@ -144,5 +184,6 @@ async def live_odds(
     except OddsProviderUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    saved = save_odds_events(normalized_league, result.get("events", []))
     odds_cache[cache_key] = (time.monotonic(), result)
-    return {**result, "cached": False}
+    return {**result, "cached": False, "snapshots_saved": saved}

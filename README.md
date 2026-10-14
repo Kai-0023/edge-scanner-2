@@ -50,6 +50,17 @@ http://127.0.0.1:8000/live/nfl?bookmakers=draftkings,fanduel
 
 The second URL requests only the named bookmakers when they are included in your provider's coverage. Check the provider terms before publicly redistributing raw odds data.
 
+## Local data pipeline
+
+Edge Scanner now creates a local SQLite database at `data/processed/edge_scanner.db`. It is ignored by Git and stores timestamped odds, injury, and projection snapshots. Saving snapshots makes it possible to test the model using only information that was available before a game.
+
+- Every non-cached `/live/nba` or `/live/nfl` request saves the returned event data locally.
+- `GET /data/status` shows counts of saved snapshots.
+- `POST /sync/injuries/nba` pulls and stores authorized NBA injury records after `SPORTS_DATA_IO_API_KEY` is configured.
+- `POST /sync/injuries/nfl?season=2026REG&week=1` does the same for NFL, using the required season and week.
+
+Add `SPORTS_DATA_IO_API_KEY` only after purchasing or otherwise obtaining authorized access to the NBA/NFL data feeds. Do not send the key to chat or commit it to GitHub.
+
 ## Baseline projections
 
 The API includes transparent starter models. They do **not** fetch historical or injury data automatically yet. Instead, they calculate a projection from factors you supply, so their assumptions stay visible and testable.
