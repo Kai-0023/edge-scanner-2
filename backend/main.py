@@ -1,9 +1,12 @@
 """FastAPI entry point, league router, and authorized odds comparison route."""
 
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from logic.nba_logic import nba_player_summary
 from logic.nfl_logic import nfl_player_summary
@@ -14,6 +17,17 @@ app = FastAPI(title="Edge Scanner 2", version="0.2.0")
 
 CACHE_SECONDS = 60
 odds_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FRONTEND_DIRECTORY = PROJECT_ROOT / "frontend"
+
+app.mount("/static", StaticFiles(directory=FRONTEND_DIRECTORY), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    """Serve the local sportsbook-comparison dashboard."""
+
+    return FileResponse(FRONTEND_DIRECTORY / "index.html")
 
 
 @app.get("/health")

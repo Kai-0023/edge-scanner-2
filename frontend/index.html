@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Edge Scanner 2</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header>
+        <p class="eyebrow">LIVE LINE COMPARISON</p>
+        <h1>Edge Scanner</h1>
+        <p class="subtitle">Compare authorized sportsbook lines without scraping sportsbook websites.</p>
+      </header>
+
+      <section class="controls" aria-label="Odds controls">
+        <label>
+          League
+          <select id="league">
+            <option value="nba">NBA</option>
+            <option value="nfl">NFL</option>
+          </select>
+        </label>
+        <label class="bookmakers-label">
+          Sportsbooks
+          <input id="bookmakers" value="draftkings,fanduel" aria-describedby="bookmaker-help" />
+          <span id="bookmaker-help">Comma-separated provider keys</span>
+        </label>
+        <button id="refresh" type="button">Refresh lines</button>
+      </section>
+
+      <section id="status" class="status" aria-live="polite">Ready to load odds.</section>
+      <section id="summary" class="summary" hidden></section>
+      <section id="events" class="events" aria-live="polite"></section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
