@@ -23,12 +23,13 @@ from logic.nba_logic import nba_player_summary
 from logic.nfl_logic import nfl_player_summary
 from logic.projection_models import nfl_projection, nba_projection
 from logic.slip_ocr import OCRUnavailable, extract_bet_slip
+from logic.venue_registry import home_venue, list_venues
 from scrapers.odds_scraper import OddsProviderUnavailable, fetch_odds_comparison
 from scrapers.sportsdata_scraper import SportsDataUnavailable, fetch_injuries
 from scrapers.weather_scraper import WeatherProviderUnavailable, fetch_game_weather
 
 
-app = FastAPI(title="Edge Scanner 2", version="0.4.0")
+app = FastAPI(title="Edge Scanner 2", version="0.5.0")
 
 CACHE_SECONDS = 60
 odds_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
@@ -81,13 +82,6 @@ class NflProjectionRequest(BaseModel):
     game_id: str | None = Field(default=None, description="Optional provider game ID used to link stored snapshots.")
     home: NflTeamFactors
     away: NflTeamFactors
-
-
-class LocationResearchRequest(BaseModel):
-    """A user-entered state label; precise browser coordinates never reach the API."""
-
-    region_code: str = Field(min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
-    confirmed_by_user: bool
 
 
 class TrackingEntryRequest(BaseModel):
@@ -172,22 +166,48 @@ def project_nfl_game(data: NflProjectionRequest) -> dict[str, Any]:
     }
 
 
-@app.post("/compliance/location-research")
-def location_research(data: LocationResearchRequest) -> dict[str, str]:
-    """Return a non-legal research notice without collecting coordinates or claiming eligibility."""
+@app.get("/venues/{league}")
+def venues(league: str) -> dict[str, Any]:
+    """List all NBA or NFL teams and their home arena/stadium reference data."""
 
-    if not data.confirmed_by_user:
-        raise HTTPException(status_code=400, detail="Confirm that the state label is accurate before continuing.")
-    region_code = data.region_code.upper()
-    return {
-        "region_code": region_code,
-        "status": "research_only",
-        "location_storage": "No coordinates or location history were sent to or stored by the API.",
-        "notice": (
-            "This app does not verify betting eligibility, operator availability, or local law. "
-            "Confirm requirements directly with the relevant jurisdiction and provider."
-        ),
+    try:
+        return {"league": league.lower(), "location_basis": "home_team", "venues": list_venues(league)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/venue-context/{league}")
+async def venue_context(
+    league: str,
+    home_team: str = Query(..., min_length=2, description="The designated home team from the matchup or bet."),
+    away_team: str | None = Query(default=None, description="Optional display-only away team. It never determines the venue."),
+    game_time_local: str | None = Query(default=None, description="Optional venue-local game time. Enables NFL venue weather."),
+) -> dict[str, Any]:
+    """Resolve a matchup's location from the home team and optionally add NFL weather."""
+
+    normalized_league = league.lower()
+    try:
+        venue = home_venue(normalized_league, home_team)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    result: dict[str, Any] = {
+        "league": normalized_league,
+        "home_team": home_team,
+        "away_team": away_team,
+        "location_basis": "home_team",
+        "venue": venue,
     }
+    if normalized_league == "nfl" and game_time_local:
+        try:
+            result["weather"] = await fetch_game_weather(
+                venue["latitude"], venue["longitude"], game_time_local
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except WeatherProviderUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return result
 
 
 @app.post("/tracking/ocr")
@@ -215,22 +235,6 @@ def list_tracking_entries(limit: int = Query(default=8, ge=1, le=50)) -> dict[st
     """List recent local tracking entries for this app instance."""
 
     return {"entries": recent_tracking_entries(limit)}
-
-
-@app.get("/weather/nfl")
-async def nfl_weather(
-    latitude: float = Query(..., ge=-90, le=90, description="Public game-venue latitude, not device location."),
-    longitude: float = Query(..., ge=-180, le=180, description="Public game-venue longitude, not device location."),
-    game_time_local: str = Query(..., description="Venue-local game time, for example 2026-10-20T19:00."),
-) -> dict[str, Any]:
-    """Return Open-Meteo context for an NFL venue without modifying any projection."""
-
-    try:
-        return await fetch_game_weather(latitude, longitude, game_time_local)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except WeatherProviderUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/sync/injuries/{league}")

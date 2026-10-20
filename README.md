@@ -31,9 +31,9 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 - `GET /analyze/nba?player=LeBron%20James` or `GET /analyze/nfl?player=...` routes a request to the selected sport.
 - `GET /live/nba` and `GET /live/nfl` compare available U.S. sportsbook lines through The Odds API after you configure your own key. Responses are cached for 60 seconds to preserve API credits.
 - `POST /projection/nba` and `POST /projection/nfl` return a transparent matchup explanation that identifies the supplied factors driving the baseline result. It is not a trained ML prediction.
-- `POST /compliance/location-research` returns a research-only notice for a user-confirmed state code. It does not receive or store device coordinates and does not verify eligibility, legality, or provider availability.
+- `GET /venues/nba` and `GET /venues/nfl` list all configured home arenas and stadiums.
+- `GET /venue-context/{league}?home_team=...` resolves the location from the home team only. For NFL, add `game_time_local` to include Open-Meteo venue weather.
 - `POST /tracking/ocr` reads a slip image in memory when local OCR is installed. `POST /tracking/entries` stores only fields the user reviews and confirms.
-- `GET /weather/nfl` uses Open-Meteo to provide public game-venue weather context for the existing NFL weather-adjustment input. It does not use device location or automatically alter a projection.
 
 ## Live-data note
 
@@ -74,12 +74,11 @@ The API includes transparent starter models. They do **not** fetch historical or
 
 Use `/docs` to enter test values. An injury adjustment is a point estimate: negative when an absence hurts that team and positive when its opponent is missing a key player. Validate all factors against historical games before relying on model outputs.
 
-## Mobile tools and privacy
+## Mobile venue and tracking tools
 
-The dashboard includes optional device-location confirmation and a camera/image upload control for slip tracking.
+The dashboard resolves game location from the home team and includes a camera/image upload control for slip tracking.
 
-- Browser GPS only confirms location on the device. The app asks the user to enter a two-letter state code separately, and does not send or save browser coordinates.
-- Location research is not a legal or sportsbook-availability check. Users must confirm requirements directly with the relevant jurisdiction and provider.
+- Every configured NBA and NFL team has a home arena/stadium, city, and venue coordinates in the source-controlled registry. The away team and device location are never used to determine venue.
+- The NFL venue-weather tool sends the selected stadium's reference coordinates and a venue-local game time to Open-Meteo. It returns temperature, precipitation probability, wind, gusts, weather code, and review flags.
 - The tracker stores only user-reviewed fields such as the event, selection, odds, and stake in the local SQLite database. It does not store slip images or raw OCR text.
 - OCR requires the Python packages in `requirements.txt` and the [Tesseract executable](https://github.com/tesseract-ocr/tesseract) installed on the server. If it is unavailable, manual entry remains available.
-- The NFL venue-weather tool sends only public stadium coordinates and a venue-local game time to Open-Meteo. It returns temperature, precipitation probability, wind, gusts, weather code, and review flags.

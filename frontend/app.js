@@ -4,17 +4,12 @@ const refreshButton = document.querySelector("#refresh");
 const status = document.querySelector("#status");
 const summary = document.querySelector("#summary");
 const eventsContainer = document.querySelector("#events");
-const weatherForm = document.querySelector("#weather-form");
-const weatherLatitude = document.querySelector("#weather-latitude");
-const weatherLongitude = document.querySelector("#weather-longitude");
-const weatherGameTime = document.querySelector("#weather-game-time");
-const weatherStatus = document.querySelector("#weather-status");
-const weatherResult = document.querySelector("#weather-result");
-const detectLocationButton = document.querySelector("#detect-location");
-const checkLocationButton = document.querySelector("#check-location");
-const regionCodeInput = document.querySelector("#region-code");
-const confirmRegionInput = document.querySelector("#confirm-region");
-const locationStatus = document.querySelector("#location-status");
+const venueForm = document.querySelector("#venue-form");
+const venueLeague = document.querySelector("#venue-league");
+const venueHomeTeam = document.querySelector("#venue-home-team");
+const venueGameTime = document.querySelector("#venue-game-time");
+const venueStatus = document.querySelector("#venue-status");
+const venueResult = document.querySelector("#venue-result");
 const slipImageInput = document.querySelector("#slip-image");
 const slipPreview = document.querySelector("#slip-preview");
 const scanSlipButton = document.querySelector("#scan-slip");
@@ -46,21 +41,82 @@ function setInlineStatus(element, message, isError = false) {
   element.classList.toggle("error", isError);
 }
 
-function displayWeather(weather) {
-  weatherResult.replaceChildren();
-  const conditions = weather.conditions;
+function displayVenueContext(context) {
+  venueResult.replaceChildren();
+  const { venue } = context;
   const values = [
-    `${weather.forecast_time_local} (${weather.timezone || "venue time"})`,
-    `${conditions.weather_description}; ${conditions.temperature_f}°F`,
-    `Precipitation: ${conditions.precipitation_probability_percent}%`,
-    `Wind: ${conditions.wind_speed_mph} mph; gusts ${conditions.wind_gusts_mph} mph`,
-    ...weather.review_flags,
+    `${context.home_team} home venue: ${venue.venue}`,
+    venue.city,
   ];
+  if (context.weather) {
+    const conditions = context.weather.conditions;
+    values.push(
+      `Weather at ${context.weather.forecast_time_local} (${context.weather.timezone || "venue time"})`,
+      `${conditions.weather_description}; ${conditions.temperature_f}°F`,
+      `Precipitation: ${conditions.precipitation_probability_percent}%`,
+      `Wind: ${conditions.wind_speed_mph} mph; gusts ${conditions.wind_gusts_mph} mph`,
+      ...context.weather.review_flags,
+    );
+  }
   values.forEach((value) => {
     const item = document.createElement("li");
     item.textContent = value;
-    weatherResult.append(item);
+    venueResult.append(item);
   });
+}
+
+async function loadVenueTeams(preferredTeam = "") {
+  const league = venueLeague.value;
+  venueHomeTeam.disabled = true;
+  venueHomeTeam.replaceChildren();
+  setInlineStatus(venueStatus, `Loading ${league.toUpperCase()} home venues…`);
+  try {
+    const response = await fetch(`/venues/${league}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Unable to load the venue list.");
+    data.venues.forEach((venue) => {
+      const option = document.createElement("option");
+      option.value = venue.team;
+      option.textContent = `${venue.team} — ${venue.venue}`;
+      venueHomeTeam.append(option);
+    });
+    if (preferredTeam && [...venueHomeTeam.options].some((option) => option.value === preferredTeam)) {
+      venueHomeTeam.value = preferredTeam;
+    }
+    setInlineStatus(venueStatus, "Select a home team to use its official home venue.");
+  } catch (error) {
+    setInlineStatus(venueStatus, error.message, true);
+  } finally {
+    venueHomeTeam.disabled = false;
+  }
+}
+
+async function showVenueContext() {
+  const homeTeam = venueHomeTeam.value;
+  if (!homeTeam) {
+    setInlineStatus(venueStatus, "Choose a home team first.", true);
+    return;
+  }
+  const submitButton = venueForm.querySelector("button");
+  submitButton.disabled = true;
+  venueResult.replaceChildren();
+  setInlineStatus(venueStatus, `Resolving ${homeTeam}'s home venue…`);
+  try {
+    const query = new URLSearchParams({ home_team: homeTeam });
+    if (venueGameTime.value) query.set("game_time_local", venueGameTime.value);
+    const response = await fetch(`/venue-context/${venueLeague.value}?${query}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Unable to resolve this home venue.");
+    displayVenueContext(data);
+    setInlineStatus(
+      venueStatus,
+      data.weather?.model_note || "Venue was determined from the home team only; away-team and device locations were not used.",
+    );
+  } catch (error) {
+    setInlineStatus(venueStatus, error.message, true);
+  } finally {
+    submitButton.disabled = false;
+  }
 }
 
 function displayMarkets(markets = []) {
@@ -98,7 +154,10 @@ function displayEvent(event) {
           <p class="event-time">${new Date(event.commence_time).toLocaleString()}</p>
           <h2>${escapeHtml(event.away_team)} <span>at</span> ${escapeHtml(event.home_team)}</h2>
         </div>
-      <span class="comparison-count">${event.bookmakers?.length || 0} books</span>
+        <div class="event-actions">
+          <span class="comparison-count">${event.bookmakers?.length || 0} books</span>
+          <button class="secondary-button venue-event-button" type="button" data-home-team="${escapeHtml(event.home_team)}" data-league="${leagueInput.value}">Use home venue</button>
+        </div>
       </div>
       <div class="bookmaker-grid">${bookmakers || "<p>No selected sportsbook lines are available for this event.</p>"}</div>
     </article>`;
@@ -142,83 +201,24 @@ async function loadOdds() {
 
 refreshButton.addEventListener("click", loadOdds);
 
-weatherForm.addEventListener("submit", async (event) => {
+venueLeague.addEventListener("change", () => loadVenueTeams());
+leagueInput.addEventListener("change", () => {
+  venueLeague.value = leagueInput.value;
+  loadVenueTeams();
+});
+
+venueForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const latitude = Number(weatherLatitude.value);
-  const longitude = Number(weatherLongitude.value);
-  const gameTime = weatherGameTime.value;
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !gameTime) {
-    setInlineStatus(weatherStatus, "Enter a venue latitude, longitude, and local game time.", true);
-    return;
-  }
-
-  const submitButton = weatherForm.querySelector("button");
-  submitButton.disabled = true;
-  setInlineStatus(weatherStatus, "Loading venue weather…");
-  try {
-    const query = new URLSearchParams({ latitude, longitude, game_time_local: gameTime });
-    const response = await fetch(`/weather/nfl?${query}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Unable to load venue weather.");
-    displayWeather(data);
-    setInlineStatus(weatherStatus, data.model_note);
-  } catch (error) {
-    weatherResult.replaceChildren();
-    setInlineStatus(weatherStatus, error.message, true);
-  } finally {
-    submitButton.disabled = false;
-  }
+  await showVenueContext();
 });
 
-detectLocationButton.addEventListener("click", () => {
-  if (!navigator.geolocation) {
-    setInlineStatus(locationStatus, "This browser does not provide device location. You can still enter a state code manually.", true);
-    return;
-  }
-
-  detectLocationButton.disabled = true;
-  detectLocationButton.textContent = "Checking…";
-  navigator.geolocation.getCurrentPosition(
-    () => {
-      setInlineStatus(locationStatus, "Location confirmed on this device. Coordinates were not sent or saved—enter and confirm your state code to continue.");
-      detectLocationButton.disabled = false;
-      detectLocationButton.textContent = "Location confirmed";
-    },
-    () => {
-      setInlineStatus(locationStatus, "Location permission was not granted. You can still enter a state code manually.", true);
-      detectLocationButton.disabled = false;
-      detectLocationButton.textContent = "Detect on this device";
-    },
-    { enableHighAccuracy: false, maximumAge: 300000, timeout: 10000 },
-  );
-});
-
-checkLocationButton.addEventListener("click", async () => {
-  const regionCode = regionCodeInput.value.trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(regionCode)) {
-    setInlineStatus(locationStatus, "Enter a two-letter state code, such as LA.", true);
-    return;
-  }
-  if (!confirmRegionInput.checked) {
-    setInlineStatus(locationStatus, "Confirm that the state code is accurate before continuing.", true);
-    return;
-  }
-
-  checkLocationButton.disabled = true;
-  try {
-    const response = await fetch("/compliance/location-research", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ region_code: regionCode, confirmed_by_user: true }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Unable to check the research notice.");
-    setInlineStatus(locationStatus, `${data.region_code}: ${data.notice} ${data.location_storage}`);
-  } catch (error) {
-    setInlineStatus(locationStatus, error.message, true);
-  } finally {
-    checkLocationButton.disabled = false;
-  }
+eventsContainer.addEventListener("click", async (event) => {
+  const action = event.target.closest(".venue-event-button");
+  if (!action) return;
+  venueLeague.value = action.dataset.league;
+  await loadVenueTeams(action.dataset.homeTeam);
+  await showVenueContext();
+  venueForm.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
 slipImageInput.addEventListener("change", () => {
@@ -332,4 +332,5 @@ trackingForm.addEventListener("submit", async (event) => {
 });
 
 loadOdds();
+loadVenueTeams();
 loadTrackingEntries();

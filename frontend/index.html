@@ -37,46 +37,30 @@
 
       <section class="utility-grid" aria-label="Mobile research and tracking tools">
         <article class="utility-card">
-          <p class="eyebrow">NFL WEATHER CONTEXT</p>
-          <h2>Venue forecast</h2>
-          <p>Get weather for a public game venue—not your device location. Use the result when reviewing the optional weather adjustment in the NFL baseline.</p>
-          <form id="weather-form" class="weather-form">
+          <p class="eyebrow">HOME VENUE CONTEXT</p>
+          <h2>Matchup location</h2>
+          <p>The home team determines the arena or stadium. Away-team and device locations are never used. NFL selections can also include venue weather.</p>
+          <form id="venue-form" class="venue-form">
             <label>
-              Venue latitude
-              <input id="weather-latitude" required inputmode="decimal" placeholder="29.9511" />
+              League
+              <select id="venue-league">
+                <option value="nba">NBA</option>
+                <option value="nfl">NFL</option>
+              </select>
             </label>
             <label>
-              Venue longitude
-              <input id="weather-longitude" required inputmode="decimal" placeholder="-90.0715" />
+              Home team
+              <select id="venue-home-team" required aria-describedby="venue-help"></select>
+              <span id="venue-help">Venue is always resolved from this home team.</span>
             </label>
             <label class="full-width">
-              Venue-local game time
-              <input id="weather-game-time" required type="datetime-local" />
+              Venue-local game time (optional; enables NFL weather)
+              <input id="venue-game-time" type="datetime-local" />
             </label>
-            <button type="submit">Check venue weather</button>
+            <button type="submit">Show home venue</button>
           </form>
-          <p id="weather-status" class="inline-status" aria-live="polite">Uses Open-Meteo—no API key required.</p>
-          <ul id="weather-result" class="weather-result" aria-live="polite"></ul>
-        </article>
-
-        <article class="utility-card">
-          <p class="eyebrow">PRIVATE LOCATION CHECK</p>
-          <h2>Research mode</h2>
-          <p>Use your device to confirm your location, then enter a two-letter state code. Your coordinates stay in this browser and are never sent to Edge Scanner.</p>
-          <div class="location-controls">
-            <button id="detect-location" type="button" class="secondary-button">Detect on this device</button>
-            <label>
-              State code
-              <input id="region-code" maxlength="2" placeholder="LA" aria-describedby="region-help" />
-              <span id="region-help">Example: LA, TX, or NY</span>
-            </label>
-          </div>
-          <label class="checkbox-label">
-            <input id="confirm-region" type="checkbox" />
-            I confirm this state code is accurate.
-          </label>
-          <button id="check-location" type="button">Show research notice</button>
-          <p id="location-status" class="inline-status" aria-live="polite">Location is optional.</p>
+          <p id="venue-status" class="inline-status" aria-live="polite">Loading NBA home venues…</p>
+          <ul id="venue-result" class="venue-result" aria-live="polite"></ul>
         </article>
 
         <article class="utility-card">
