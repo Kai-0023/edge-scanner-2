@@ -7,7 +7,7 @@ weather adjustment belongs in the transparent model inputs.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -50,14 +50,23 @@ class WeatherProviderUnavailable(RuntimeError):
     """Raised when the weather provider cannot return a usable forecast."""
 
 
-def _nearest_hour_index(hourly_times: list[str], game_time_local: str) -> int:
-    """Find the closest provider hour to a local venue time within two hours."""
+def _nearest_hour_index(
+    hourly_times: list[str], game_time_local: str, utc_offset_seconds: int = 0
+) -> int:
+    """Find the closest provider hour to a local venue time within two hours.
+
+    The odds provider supplies event times as ISO timestamps with an offset. The
+    weather provider's hourly times are venue-local, so offset timestamps are
+    converted to the venue timezone before matching.
+    """
 
     try:
-        target = datetime.fromisoformat(game_time_local)
+        target = datetime.fromisoformat(game_time_local.replace("Z", "+00:00"))
+        if target.tzinfo is not None:
+            target = target.astimezone(timezone(timedelta(seconds=utc_offset_seconds))).replace(tzinfo=None)
         candidates = [datetime.fromisoformat(value) for value in hourly_times]
     except ValueError as exc:
-        raise ValueError("game_time_local must look like 2026-10-20T19:00.") from exc
+        raise ValueError("game_time_local must be an ISO date-time, such as 2026-10-20T19:00 or 2026-10-21T00:00:00Z.") from exc
 
     index = min(range(len(candidates)), key=lambda item: abs(candidates[item] - target))
     if abs(candidates[index] - target).total_seconds() > 2 * 60 * 60:
@@ -76,7 +85,7 @@ def summarize_game_weather(
     if not times or any(not hourly.get(field) for field in required_fields):
         raise WeatherProviderUnavailable("The weather provider did not return a complete hourly forecast.")
 
-    index = _nearest_hour_index(times, game_time_local)
+    index = _nearest_hour_index(times, game_time_local, int(payload.get("utc_offset_seconds", 0)))
     weather_code = hourly["weather_code"][index]
     temperature = hourly["temperature_2m"][index]
     precipitation_probability = hourly["precipitation_probability"][index]

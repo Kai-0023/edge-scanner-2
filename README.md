@@ -30,6 +30,7 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 - `GET /health` verifies that the API is running.
 - `GET /analyze/nba?player=LeBron%20James` or `GET /analyze/nfl?player=...` routes a request to the selected sport.
 - `GET /live/nba` and `GET /live/nfl` compare available U.S. sportsbook lines through The Odds API after you configure your own key. Responses are cached for 60 seconds to preserve API credits.
+- The dashboard uses each authorized odds event's `commence_time`, home team, and away team to populate an upcoming-game selector. Choosing a game automatically applies its home venue and official start time.
 - `POST /projection/nba` and `POST /projection/nfl` return a transparent matchup explanation that identifies the supplied factors driving the baseline result. It is not a trained ML prediction.
 - `GET /venues/nba` and `GET /venues/nfl` list all configured home arenas and stadiums.
 - `GET /venue-context/{league}?home_team=...` resolves the location from the home team only. For NFL, add `game_time_local` to include Open-Meteo venue weather.
@@ -79,6 +80,7 @@ Use `/docs` to enter test values. An injury adjustment is a point estimate: nega
 The dashboard resolves game location from the home team and includes a camera/image upload control for slip tracking.
 
 - Every configured NBA and NFL team has a home arena/stadium, city, and venue coordinates in the source-controlled registry. The away team and device location are never used to determine venue.
+- Once live odds are connected, the upcoming-game selector lists the provider's scheduled events by date. A selected event uses its home team to resolve venue; for NFL, its ISO start time is converted to the venue timezone for weather matching.
 - The NFL venue-weather tool sends the selected stadium's reference coordinates and a venue-local game time to Open-Meteo. It returns temperature, precipitation probability, wind, gusts, weather code, and review flags.
 - The tracker stores only user-reviewed fields such as the event, selection, odds, and stake in the local SQLite database. It does not store slip images or raw OCR text.
 - OCR requires the Python packages in `requirements.txt` and the [Tesseract executable](https://github.com/tesseract-ocr/tesseract) installed on the server. If it is unavailable, manual entry remains available.

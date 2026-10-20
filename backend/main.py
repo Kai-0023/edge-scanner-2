@@ -203,10 +203,8 @@ async def venue_context(
             result["weather"] = await fetch_game_weather(
                 venue["latitude"], venue["longitude"], game_time_local
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except WeatherProviderUnavailable as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except (ValueError, WeatherProviderUnavailable) as exc:
+            result["weather_unavailable"] = str(exc)
     return result
 
 

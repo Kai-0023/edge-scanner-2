@@ -5,6 +5,7 @@ const status = document.querySelector("#status");
 const summary = document.querySelector("#summary");
 const eventsContainer = document.querySelector("#events");
 const venueForm = document.querySelector("#venue-form");
+const upcomingGame = document.querySelector("#upcoming-game");
 const venueLeague = document.querySelector("#venue-league");
 const venueHomeTeam = document.querySelector("#venue-home-team");
 const venueGameTime = document.querySelector("#venue-game-time");
@@ -26,6 +27,8 @@ const trackingNotes = document.querySelector("#tracking-notes");
 
 let selectedImageUrl = null;
 let trackingSource = "manual";
+let selectedGameTime = "";
+const upcomingGames = new Map();
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -58,11 +61,39 @@ function displayVenueContext(context) {
       ...context.weather.review_flags,
     );
   }
+  if (context.weather_unavailable) values.push(`Weather: ${context.weather_unavailable}`);
   values.forEach((value) => {
     const item = document.createElement("li");
     item.textContent = value;
     venueResult.append(item);
   });
+}
+
+function resetUpcomingGames(message = "Load authorized live odds to choose a game") {
+  upcomingGames.clear();
+  upcomingGame.replaceChildren();
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = message;
+  upcomingGame.append(option);
+  upcomingGame.disabled = true;
+}
+
+function populateUpcomingGames(events, league) {
+  resetUpcomingGames("Choose an upcoming game from the loaded odds");
+  const futureEvents = [...events]
+    .filter((event) => new Date(event.commence_time).getTime() >= Date.now() - 60 * 60 * 1000)
+    .sort((first, second) => new Date(first.commence_time) - new Date(second.commence_time));
+  futureEvents.forEach((event) => {
+    const key = `${league}:${event.id}`;
+    upcomingGames.set(key, { ...event, league });
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = `${new Date(event.commence_time).toLocaleString()} — ${event.away_team} at ${event.home_team}`;
+    upcomingGame.append(option);
+  });
+  upcomingGame.disabled = futureEvents.length === 0;
+  if (!futureEvents.length) resetUpcomingGames("No upcoming games were returned by the odds provider");
 }
 
 async function loadVenueTeams(preferredTeam = "") {
@@ -103,14 +134,15 @@ async function showVenueContext() {
   setInlineStatus(venueStatus, `Resolving ${homeTeam}'s home venue…`);
   try {
     const query = new URLSearchParams({ home_team: homeTeam });
-    if (venueGameTime.value) query.set("game_time_local", venueGameTime.value);
+    const gameTime = selectedGameTime || venueGameTime.value;
+    if (gameTime) query.set("game_time_local", gameTime);
     const response = await fetch(`/venue-context/${venueLeague.value}?${query}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Unable to resolve this home venue.");
     displayVenueContext(data);
     setInlineStatus(
       venueStatus,
-      data.weather?.model_note || "Venue was determined from the home team only; away-team and device locations were not used.",
+      data.weather?.model_note || data.weather_unavailable || "Venue was determined from the home team only; away-team and device locations were not used.",
     );
   } catch (error) {
     setInlineStatus(venueStatus, error.message, true);
@@ -156,7 +188,7 @@ function displayEvent(event) {
         </div>
         <div class="event-actions">
           <span class="comparison-count">${event.bookmakers?.length || 0} books</span>
-          <button class="secondary-button venue-event-button" type="button" data-home-team="${escapeHtml(event.home_team)}" data-league="${leagueInput.value}">Use home venue</button>
+          <button class="secondary-button venue-event-button" type="button" data-home-team="${escapeHtml(event.home_team)}" data-league="${leagueInput.value}" data-commence-time="${escapeHtml(event.commence_time)}">Use home venue</button>
         </div>
       </div>
       <div class="bookmaker-grid">${bookmakers || "<p>No selected sportsbook lines are available for this event.</p>"}</div>
@@ -190,9 +222,11 @@ async function loadOdds() {
       <span><strong>${data.usage.requests_remaining ?? "—"}</strong> credits remaining</span>
       <span>Markets: ${data.markets.join(", ")}</span>`;
     eventsContainer.innerHTML = data.events.map(displayEvent).join("");
+    populateUpcomingGames(data.events, league);
   } catch (error) {
     status.textContent = `Could not load odds: ${error.message}`;
     status.classList.add("error");
+    resetUpcomingGames("Connect The Odds API to choose an upcoming game");
   } finally {
     refreshButton.disabled = false;
     refreshButton.textContent = "Refresh lines";
@@ -203,8 +237,30 @@ refreshButton.addEventListener("click", loadOdds);
 
 venueLeague.addEventListener("change", () => loadVenueTeams());
 leagueInput.addEventListener("change", () => {
+  selectedGameTime = "";
   venueLeague.value = leagueInput.value;
   loadVenueTeams();
+});
+
+venueHomeTeam.addEventListener("change", () => {
+  selectedGameTime = "";
+  upcomingGame.value = "";
+});
+
+venueGameTime.addEventListener("input", () => {
+  selectedGameTime = "";
+  upcomingGame.value = "";
+});
+
+upcomingGame.addEventListener("change", async () => {
+  const game = upcomingGames.get(upcomingGame.value);
+  if (!game) return;
+  venueLeague.value = game.league;
+  await loadVenueTeams(game.home_team);
+  selectedGameTime = game.commence_time;
+  venueGameTime.value = "";
+  setInlineStatus(venueStatus, `Selected ${game.away_team} at ${game.home_team} on ${new Date(game.commence_time).toLocaleString()}.`);
+  await showVenueContext();
 });
 
 venueForm.addEventListener("submit", async (event) => {
@@ -217,6 +273,8 @@ eventsContainer.addEventListener("click", async (event) => {
   if (!action) return;
   venueLeague.value = action.dataset.league;
   await loadVenueTeams(action.dataset.homeTeam);
+  selectedGameTime = action.dataset.commenceTime;
+  venueGameTime.value = "";
   await showVenueContext();
   venueForm.scrollIntoView({ behavior: "smooth", block: "center" });
 });
@@ -332,5 +390,6 @@ trackingForm.addEventListener("submit", async (event) => {
 });
 
 loadOdds();
+resetUpcomingGames();
 loadVenueTeams();
 loadTrackingEntries();

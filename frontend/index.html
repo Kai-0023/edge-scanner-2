@@ -41,6 +41,13 @@
           <h2>Matchup location</h2>
           <p>The home team determines the arena or stadium. Away-team and device locations are never used. NFL selections can also include venue weather.</p>
           <form id="venue-form" class="venue-form">
+            <label class="full-width">
+              Upcoming game
+              <select id="upcoming-game" aria-describedby="upcoming-game-help">
+                <option value="">Load authorized live odds to choose a game</option>
+              </select>
+              <span id="upcoming-game-help">Selecting a game fills its league, home team, and official start time.</span>
+            </label>
             <label>
               League
               <select id="venue-league">
