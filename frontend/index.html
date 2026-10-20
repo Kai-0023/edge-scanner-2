@@ -12,6 +12,7 @@
         <p class="eyebrow">LIVE LINE COMPARISON</p>
         <h1>Edge Scanner</h1>
         <p class="subtitle">Compare authorized sportsbook lines without scraping sportsbook websites.</p>
+        <p class="disclaimer">Matchup explanations are transparent baseline calculations, not trained AI predictions or betting advice.</p>
       </header>
 
       <section class="controls" aria-label="Odds controls">
@@ -33,6 +34,75 @@
       <section id="status" class="status" aria-live="polite">Ready to load odds.</section>
       <section id="summary" class="summary" hidden></section>
       <section id="events" class="events" aria-live="polite"></section>
+
+      <section class="utility-grid" aria-label="Mobile research and tracking tools">
+        <article class="utility-card">
+          <p class="eyebrow">PRIVATE LOCATION CHECK</p>
+          <h2>Research mode</h2>
+          <p>Use your device to confirm your location, then enter a two-letter state code. Your coordinates stay in this browser and are never sent to Edge Scanner.</p>
+          <div class="location-controls">
+            <button id="detect-location" type="button" class="secondary-button">Detect on this device</button>
+            <label>
+              State code
+              <input id="region-code" maxlength="2" placeholder="LA" aria-describedby="region-help" />
+              <span id="region-help">Example: LA, TX, or NY</span>
+            </label>
+          </div>
+          <label class="checkbox-label">
+            <input id="confirm-region" type="checkbox" />
+            I confirm this state code is accurate.
+          </label>
+          <button id="check-location" type="button">Show research notice</button>
+          <p id="location-status" class="inline-status" aria-live="polite">Location is optional.</p>
+        </article>
+
+        <article class="utility-card">
+          <p class="eyebrow">SLIP TRACKER</p>
+          <h2>Capture, review, then save</h2>
+          <p>Take a photo or choose an image. OCR suggestions are never saved until you check the fields and submit them.</p>
+          <label class="file-picker" for="slip-image">
+            <span>Camera or image</span>
+            <input id="slip-image" type="file" accept="image/*" capture="environment" />
+          </label>
+          <img id="slip-preview" class="slip-preview" alt="Selected bet slip preview" hidden />
+          <button id="scan-slip" type="button" class="secondary-button">Read image with OCR</button>
+          <p id="scan-status" class="inline-status" aria-live="polite">OCR is optional—manual entry also works.</p>
+
+          <form id="tracking-form" class="tracking-form">
+            <label>
+              League
+              <select id="tracking-league">
+                <option value="other">Other</option>
+                <option value="nba">NBA</option>
+                <option value="nfl">NFL</option>
+              </select>
+            </label>
+            <label>
+              Event
+              <input id="tracking-event" required maxlength="140" placeholder="Team A at Team B" />
+            </label>
+            <label>
+              Selection
+              <input id="tracking-selection" required maxlength="140" placeholder="Selection you reviewed" />
+            </label>
+            <label>
+              American odds
+              <input id="tracking-odds" inputmode="numeric" placeholder="+125" />
+            </label>
+            <label>
+              Stake
+              <input id="tracking-stake" inputmode="decimal" placeholder="20.00" />
+            </label>
+            <label class="full-width">
+              Notes (optional)
+              <input id="tracking-notes" maxlength="500" placeholder="Your own note" />
+            </label>
+            <button type="submit">Save reviewed entry</button>
+          </form>
+          <p id="tracking-status" class="inline-status" aria-live="polite"></p>
+          <ul id="tracking-list" class="tracking-list" aria-live="polite"></ul>
+        </article>
+      </section>
     </main>
     <script src="/static/app.js"></script>
   </body>

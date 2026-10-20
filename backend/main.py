@@ -2,22 +2,32 @@
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.database import database_status, initialize_database, save_injuries, save_odds_events, save_projection
+from backend.database import (
+    database_status,
+    initialize_database,
+    recent_tracking_entries,
+    save_injuries,
+    save_odds_events,
+    save_projection,
+    save_tracking_entry,
+)
+from logic.matchup_insights import nfl_matchup_insight, nba_matchup_insight
 from logic.nba_logic import nba_player_summary
 from logic.nfl_logic import nfl_player_summary
 from logic.projection_models import nfl_projection, nba_projection
+from logic.slip_ocr import OCRUnavailable, extract_bet_slip
 from scrapers.odds_scraper import OddsProviderUnavailable, fetch_odds_comparison
 from scrapers.sportsdata_scraper import SportsDataUnavailable, fetch_injuries
 
 
-app = FastAPI(title="Edge Scanner 2", version="0.2.0")
+app = FastAPI(title="Edge Scanner 2", version="0.3.0")
 
 CACHE_SECONDS = 60
 odds_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
@@ -38,6 +48,7 @@ def dashboard() -> FileResponse:
 class NbaTeamFactors(BaseModel):
     """Historical and availability factors for one NBA team."""
 
+    team_name: str | None = Field(default=None, max_length=60, description="Optional display name used in the explanation.")
     offensive_rating: float = Field(description="Historical points scored per 100 possessions.")
     defensive_rating: float = Field(description="Historical points allowed per 100 possessions.")
     recent_net_rating: float = Field(default=0, description="Recent points-for minus points-against per 100 possessions.")
@@ -55,6 +66,7 @@ class NbaProjectionRequest(BaseModel):
 class NflTeamFactors(BaseModel):
     """Historical and availability factors for one NFL team."""
 
+    team_name: str | None = Field(default=None, max_length=60, description="Optional display name used in the explanation.")
     offense_points: float = Field(description="Historical points scored per game.")
     defense_points_allowed: float = Field(description="Historical points allowed per game.")
     recent_rating: float = Field(default=0, description="A recent-performance point rating.")
@@ -68,6 +80,25 @@ class NflProjectionRequest(BaseModel):
     game_id: str | None = Field(default=None, description="Optional provider game ID used to link stored snapshots.")
     home: NflTeamFactors
     away: NflTeamFactors
+
+
+class LocationResearchRequest(BaseModel):
+    """A user-entered state label; precise browser coordinates never reach the API."""
+
+    region_code: str = Field(min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
+    confirmed_by_user: bool
+
+
+class TrackingEntryRequest(BaseModel):
+    """Fields a user has reviewed after manual entry or optional OCR."""
+
+    league: Literal["nba", "nfl", "other"] = "other"
+    event_name: str = Field(min_length=2, max_length=140)
+    selection: str = Field(min_length=2, max_length=140)
+    american_odds: int | None = Field(default=None, ge=-10000, le=10000)
+    stake: float | None = Field(default=None, ge=0, le=1_000_000)
+    notes: str | None = Field(default=None, max_length=500)
+    source: Literal["manual", "ocr_confirmed"] = "manual"
 
 
 @app.get("/health")
@@ -105,15 +136,18 @@ def project_nba_game(data: NbaProjectionRequest) -> dict[str, Any]:
     """Calculate a transparent NBA baseline projection from supplied factors."""
 
     model_name = "NBA baseline efficiency, pace, form, rest, and injury model"
+    home = data.home.model_dump()
+    away = data.away.model_dump()
     projection = nba_projection(
-        **{f"home_{key}": value for key, value in data.home.model_dump().items()},
-        **{f"away_{key}": value for key, value in data.away.model_dump().items()},
+        **{f"home_{key}": value for key, value in home.items() if key != "team_name"},
+        **{f"away_{key}": value for key, value in away.items() if key != "team_name"},
     )
     save_projection("nba", model_name, data.model_dump(), projection, data.game_id)
     return {
         "model": model_name,
         "inputs_are_user_supplied": True,
         "projection": projection,
+        "matchup_insight": nba_matchup_insight(home, away, projection),
     }
 
 
@@ -122,16 +156,64 @@ def project_nfl_game(data: NflProjectionRequest) -> dict[str, Any]:
     """Calculate a transparent NFL baseline projection from supplied factors."""
 
     model_name = "NFL baseline performance, QB, injury, rest, and weather model"
+    home = data.home.model_dump()
+    away = data.away.model_dump()
     projection = nfl_projection(
-        **{f"home_{key}": value for key, value in data.home.model_dump().items()},
-        **{f"away_{key}": value for key, value in data.away.model_dump().items()},
+        **{f"home_{key}": value for key, value in home.items() if key != "team_name"},
+        **{f"away_{key}": value for key, value in away.items() if key != "team_name"},
     )
     save_projection("nfl", model_name, data.model_dump(), projection, data.game_id)
     return {
         "model": model_name,
         "inputs_are_user_supplied": True,
         "projection": projection,
+        "matchup_insight": nfl_matchup_insight(home, away, projection),
     }
+
+
+@app.post("/compliance/location-research")
+def location_research(data: LocationResearchRequest) -> dict[str, str]:
+    """Return a non-legal research notice without collecting coordinates or claiming eligibility."""
+
+    if not data.confirmed_by_user:
+        raise HTTPException(status_code=400, detail="Confirm that the state label is accurate before continuing.")
+    region_code = data.region_code.upper()
+    return {
+        "region_code": region_code,
+        "status": "research_only",
+        "location_storage": "No coordinates or location history were sent to or stored by the API.",
+        "notice": (
+            "This app does not verify betting eligibility, operator availability, or local law. "
+            "Confirm requirements directly with the relevant jurisdiction and provider."
+        ),
+    }
+
+
+@app.post("/tracking/ocr")
+async def scan_bet_slip(image: UploadFile = File(...)) -> dict[str, Any]:
+    """Run optional in-memory OCR; a user must review every suggested field."""
+
+    if image.content_type and not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=415, detail="Upload an image file, not a document or video.")
+    image_bytes = await image.read()
+    try:
+        return extract_bet_slip(image_bytes)
+    except OCRUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/tracking/entries", status_code=201)
+def create_tracking_entry(data: TrackingEntryRequest) -> dict[str, Any]:
+    """Save a reviewed local tracking entry, never the original image or OCR text."""
+
+    return save_tracking_entry(data.model_dump())
+
+
+@app.get("/tracking/entries")
+def list_tracking_entries(limit: int = Query(default=8, ge=1, le=50)) -> dict[str, list[dict[str, Any]]]:
+    """List recent local tracking entries for this app instance."""
+
+    return {"entries": recent_tracking_entries(limit)}
 
 
 @app.post("/sync/injuries/{league}")

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.qa-venv/
 venv/
 .env
 

@@ -60,6 +60,17 @@ def initialize_database() -> None:
                 inputs_json TEXT NOT NULL,
                 result_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS tracking_entries (
+                id INTEGER PRIMARY KEY,
+                league TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                selection TEXT NOT NULL,
+                american_odds INTEGER,
+                stake REAL,
+                notes TEXT,
+                source TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
 
@@ -132,6 +143,42 @@ def save_projection(
         )
 
 
+def save_tracking_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """Store fields the user reviewed; images and raw OCR text are excluded."""
+
+    created_at = _now()
+    with _connection() as connection:
+        cursor = connection.execute(
+            """INSERT INTO tracking_entries
+            (league, event_name, selection, american_odds, stake, notes, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                entry["league"],
+                entry["event_name"],
+                entry["selection"],
+                entry.get("american_odds"),
+                entry.get("stake"),
+                entry.get("notes"),
+                entry["source"],
+                created_at,
+            ),
+        )
+    return {"id": cursor.lastrowid, "created_at": created_at, **entry}
+
+
+def recent_tracking_entries(limit: int = 12) -> list[dict[str, Any]]:
+    """Return recent locally saved, user-confirmed tracking entries."""
+
+    with _connection() as connection:
+        rows = connection.execute(
+            """SELECT id, league, event_name, selection, american_odds, stake, notes, source, created_at
+            FROM tracking_entries ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    fields = ["id", "league", "event_name", "selection", "american_odds", "stake", "notes", "source", "created_at"]
+    return [dict(zip(fields, row)) for row in rows]
+
+
 def database_status() -> dict[str, int]:
     """Return simple counts to show pipeline activity without exposing data."""
 
@@ -140,5 +187,6 @@ def database_status() -> dict[str, int]:
             "odds_snapshots": connection.execute("SELECT COUNT(*) FROM odds_snapshots").fetchone()[0],
             "injury_snapshots": connection.execute("SELECT COUNT(*) FROM injury_snapshots").fetchone()[0],
             "projection_snapshots": connection.execute("SELECT COUNT(*) FROM projection_snapshots").fetchone()[0],
+            "tracking_entries": connection.execute("SELECT COUNT(*) FROM tracking_entries").fetchone()[0],
         }
     return counts
