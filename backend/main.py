@@ -25,9 +25,10 @@ from logic.projection_models import nfl_projection, nba_projection
 from logic.slip_ocr import OCRUnavailable, extract_bet_slip
 from scrapers.odds_scraper import OddsProviderUnavailable, fetch_odds_comparison
 from scrapers.sportsdata_scraper import SportsDataUnavailable, fetch_injuries
+from scrapers.weather_scraper import WeatherProviderUnavailable, fetch_game_weather
 
 
-app = FastAPI(title="Edge Scanner 2", version="0.3.0")
+app = FastAPI(title="Edge Scanner 2", version="0.4.0")
 
 CACHE_SECONDS = 60
 odds_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
@@ -214,6 +215,22 @@ def list_tracking_entries(limit: int = Query(default=8, ge=1, le=50)) -> dict[st
     """List recent local tracking entries for this app instance."""
 
     return {"entries": recent_tracking_entries(limit)}
+
+
+@app.get("/weather/nfl")
+async def nfl_weather(
+    latitude: float = Query(..., ge=-90, le=90, description="Public game-venue latitude, not device location."),
+    longitude: float = Query(..., ge=-180, le=180, description="Public game-venue longitude, not device location."),
+    game_time_local: str = Query(..., description="Venue-local game time, for example 2026-10-20T19:00."),
+) -> dict[str, Any]:
+    """Return Open-Meteo context for an NFL venue without modifying any projection."""
+
+    try:
+        return await fetch_game_weather(latitude, longitude, game_time_local)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except WeatherProviderUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/sync/injuries/{league}")

@@ -37,6 +37,29 @@
 
       <section class="utility-grid" aria-label="Mobile research and tracking tools">
         <article class="utility-card">
+          <p class="eyebrow">NFL WEATHER CONTEXT</p>
+          <h2>Venue forecast</h2>
+          <p>Get weather for a public game venue—not your device location. Use the result when reviewing the optional weather adjustment in the NFL baseline.</p>
+          <form id="weather-form" class="weather-form">
+            <label>
+              Venue latitude
+              <input id="weather-latitude" required inputmode="decimal" placeholder="29.9511" />
+            </label>
+            <label>
+              Venue longitude
+              <input id="weather-longitude" required inputmode="decimal" placeholder="-90.0715" />
+            </label>
+            <label class="full-width">
+              Venue-local game time
+              <input id="weather-game-time" required type="datetime-local" />
+            </label>
+            <button type="submit">Check venue weather</button>
+          </form>
+          <p id="weather-status" class="inline-status" aria-live="polite">Uses Open-Meteo—no API key required.</p>
+          <ul id="weather-result" class="weather-result" aria-live="polite"></ul>
+        </article>
+
+        <article class="utility-card">
           <p class="eyebrow">PRIVATE LOCATION CHECK</p>
           <h2>Research mode</h2>
           <p>Use your device to confirm your location, then enter a two-letter state code. Your coordinates stay in this browser and are never sent to Edge Scanner.</p>

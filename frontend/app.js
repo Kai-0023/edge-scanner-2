@@ -4,6 +4,12 @@ const refreshButton = document.querySelector("#refresh");
 const status = document.querySelector("#status");
 const summary = document.querySelector("#summary");
 const eventsContainer = document.querySelector("#events");
+const weatherForm = document.querySelector("#weather-form");
+const weatherLatitude = document.querySelector("#weather-latitude");
+const weatherLongitude = document.querySelector("#weather-longitude");
+const weatherGameTime = document.querySelector("#weather-game-time");
+const weatherStatus = document.querySelector("#weather-status");
+const weatherResult = document.querySelector("#weather-result");
 const detectLocationButton = document.querySelector("#detect-location");
 const checkLocationButton = document.querySelector("#check-location");
 const regionCodeInput = document.querySelector("#region-code");
@@ -38,6 +44,23 @@ function escapeHtml(value) {
 function setInlineStatus(element, message, isError = false) {
   element.textContent = message;
   element.classList.toggle("error", isError);
+}
+
+function displayWeather(weather) {
+  weatherResult.replaceChildren();
+  const conditions = weather.conditions;
+  const values = [
+    `${weather.forecast_time_local} (${weather.timezone || "venue time"})`,
+    `${conditions.weather_description}; ${conditions.temperature_f}°F`,
+    `Precipitation: ${conditions.precipitation_probability_percent}%`,
+    `Wind: ${conditions.wind_speed_mph} mph; gusts ${conditions.wind_gusts_mph} mph`,
+    ...weather.review_flags,
+  ];
+  values.forEach((value) => {
+    const item = document.createElement("li");
+    item.textContent = value;
+    weatherResult.append(item);
+  });
 }
 
 function displayMarkets(markets = []) {
@@ -118,6 +141,34 @@ async function loadOdds() {
 }
 
 refreshButton.addEventListener("click", loadOdds);
+
+weatherForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const latitude = Number(weatherLatitude.value);
+  const longitude = Number(weatherLongitude.value);
+  const gameTime = weatherGameTime.value;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !gameTime) {
+    setInlineStatus(weatherStatus, "Enter a venue latitude, longitude, and local game time.", true);
+    return;
+  }
+
+  const submitButton = weatherForm.querySelector("button");
+  submitButton.disabled = true;
+  setInlineStatus(weatherStatus, "Loading venue weather…");
+  try {
+    const query = new URLSearchParams({ latitude, longitude, game_time_local: gameTime });
+    const response = await fetch(`/weather/nfl?${query}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Unable to load venue weather.");
+    displayWeather(data);
+    setInlineStatus(weatherStatus, data.model_note);
+  } catch (error) {
+    weatherResult.replaceChildren();
+    setInlineStatus(weatherStatus, error.message, true);
+  } finally {
+    submitButton.disabled = false;
+  }
+});
 
 detectLocationButton.addEventListener("click", () => {
   if (!navigator.geolocation) {

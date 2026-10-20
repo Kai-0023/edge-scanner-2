@@ -33,6 +33,7 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 - `POST /projection/nba` and `POST /projection/nfl` return a transparent matchup explanation that identifies the supplied factors driving the baseline result. It is not a trained ML prediction.
 - `POST /compliance/location-research` returns a research-only notice for a user-confirmed state code. It does not receive or store device coordinates and does not verify eligibility, legality, or provider availability.
 - `POST /tracking/ocr` reads a slip image in memory when local OCR is installed. `POST /tracking/entries` stores only fields the user reviews and confirms.
+- `GET /weather/nfl` uses Open-Meteo to provide public game-venue weather context for the existing NFL weather-adjustment input. It does not use device location or automatically alter a projection.
 
 ## Live-data note
 
@@ -81,3 +82,4 @@ The dashboard includes optional device-location confirmation and a camera/image 
 - Location research is not a legal or sportsbook-availability check. Users must confirm requirements directly with the relevant jurisdiction and provider.
 - The tracker stores only user-reviewed fields such as the event, selection, odds, and stake in the local SQLite database. It does not store slip images or raw OCR text.
 - OCR requires the Python packages in `requirements.txt` and the [Tesseract executable](https://github.com/tesseract-ocr/tesseract) installed on the server. If it is unavailable, manual entry remains available.
+- The NFL venue-weather tool sends only public stadium coordinates and a venue-local game time to Open-Meteo. It returns temperature, precipitation probability, wind, gusts, weather code, and review flags.

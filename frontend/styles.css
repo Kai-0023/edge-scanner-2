@@ -43,6 +43,10 @@ button:disabled { opacity: .6; cursor: wait; }
 .file-picker input { border: 0; background: transparent; padding: 0; min-height: 28px; }
 .slip-preview { width: 100%; max-height: 220px; object-fit: contain; background: #0c1223; border-radius: 10px; border: 1px solid #273452; margin: 4px 0 12px; }
 .tracking-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.weather-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.weather-form .full-width, .weather-form button { grid-column: 1 / -1; }
+.weather-result { display: grid; gap: 8px; margin-top: 12px; }
+.weather-result li { display: block; border-top: 1px solid #273452; padding: 9px 0; line-height: 1.4; }
 .tracking-form .full-width, .tracking-form button { grid-column: 1 / -1; }
 .tracking-list { display: grid; gap: 8px; margin-top: 16px; }
 .tracking-list li { display: block; border-top: 1px solid #273452; padding: 9px 0; line-height: 1.4; }
@@ -65,7 +69,7 @@ li strong { color: #fff; }
 @media (max-width: 600px) {
   .page-shell { padding: 30px 15px; }
   .controls { display: grid; }
-  .location-controls, .tracking-form { display: grid; grid-template-columns: 1fr; }
-  .tracking-form .full-width, .tracking-form button { grid-column: auto; }
+  .location-controls, .tracking-form, .weather-form { display: grid; grid-template-columns: 1fr; }
+  .tracking-form .full-width, .tracking-form button, .weather-form .full-width, .weather-form button { grid-column: auto; }
   .event-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
