@@ -79,7 +79,7 @@ If one API-Sports key is authorized for both subscriptions, use `API_SPORTS_KEY`
 
 From an NFL event, choose **Analyze matchup** to review season-to-date quarterback passing/rushing, team scoring, pass/rush production, sacks, interceptions, and red-zone touchdown rates. From an NBA event, the same action shows current team averages, completed-game form, current player logs, and availability only when the provider returns it. It also shows a clearly separate prior-season player reference so established players who are resting or absent from preseason game logs are not hidden. Prior-season data does not affect the current-season scoring blend and must not be treated as a current roster or availability confirmation. Both feeds are cached for 15 minutes to reduce API usage.
 
-Read the [NBA Team Insights Guide](docs/nba-team-insights.md) for definitions, data limits, and the API response structure.
+Read the [NBA Team Insights Guide](docs/nba-team-insights.md) and [NFL Team Insights Guide](docs/nfl-team-insights.md) for definitions, data limits, provider field mapping, and API response structures.
 
 The tab calculates a transparent scoring-context blend from each team's points per game and its opponent's points allowed per game. If a consensus spread or total is available from The Odds API, it highlights only the largest model-to-market difference as a research lead. It is not a probability, a validated model, or a guaranteed/personalized betting recommendation.
 
