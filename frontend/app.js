@@ -121,6 +121,7 @@ function addInsightSection(container, title, metrics, variant = "") {
   metrics.forEach(([label, value]) => {
     const row = document.createElement("div");
     row.className = "insight-metric";
+    row.classList.toggle("injury-metric", label === "Reported injury");
     const labelElement = document.createElement("span");
     labelElement.textContent = label;
     const valueElement = document.createElement("strong");
@@ -130,6 +131,31 @@ function addInsightSection(container, title, metrics, variant = "") {
   });
   section.append(heading, list);
   container.append(section);
+}
+
+function hasReportedInjury(availability) {
+  const status = String(availability || "").trim().toLowerCase();
+  if (!status) return false;
+  return ![
+    "no current injury report returned",
+    "availability data unavailable",
+    "available",
+    "active",
+    "healthy",
+  ].includes(status);
+}
+
+function playerMetrics(players) {
+  return players.flatMap((player) => {
+    const metrics = [[
+      player.name,
+      `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
+    ]];
+    if (hasReportedInjury(player.availability)) {
+      metrics.push(["Reported injury", `${player.name}: ${player.availability}`]);
+    }
+    return metrics;
+  });
 }
 
 function createTeamHeader(team, side) {
@@ -220,10 +246,9 @@ function createNbaTeamInsightCard(team, side) {
   ]);
 
   const players = team.notable_players || [];
-  addInsightSection(card, "Notable players", players.length ? players.flatMap((player) => [
-    [player.name, `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`],
-    ["Availability", player.availability],
-  ]) : [["Status", "No player statistics were returned"]], "player-section");
+  addInsightSection(card, "Notable players", players.length
+    ? playerMetrics(players)
+    : [["Status", "No player statistics were returned"]], "player-section");
 
   const historical = team.historical_player_context;
   const historicalPlayers = historical?.players || [];
