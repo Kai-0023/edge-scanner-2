@@ -24,6 +24,12 @@ const trackingSelection = document.querySelector("#tracking-selection");
 const trackingOdds = document.querySelector("#tracking-odds");
 const trackingStake = document.querySelector("#tracking-stake");
 const trackingNotes = document.querySelector("#tracking-notes");
+const oddsPanel = document.querySelector("#odds-panel");
+const insightsPanel = document.querySelector("#insights-panel");
+const tabButtons = document.querySelectorAll(".tab-button");
+const insightMatchup = document.querySelector("#insight-matchup");
+const insightStatus = document.querySelector("#insight-status");
+const insightResult = document.querySelector("#insight-result");
 
 let selectedImageUrl = null;
 let trackingSource = "manual";
@@ -42,6 +48,175 @@ function escapeHtml(value) {
 function setInlineStatus(element, message, isError = false) {
   element.textContent = message;
   element.classList.toggle("error", isError);
+}
+
+function setActiveTab(tab) {
+  const showInsights = tab === "insights";
+  oddsPanel.hidden = showInsights;
+  insightsPanel.hidden = !showInsights;
+  tabButtons.forEach((button) => {
+    const selected = button.dataset.tab === tab;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
+}
+
+function formatMetric(value, suffix = "") {
+  const number = Number(value);
+  if (value === null || value === undefined || value === "" || Number.isNaN(number)) return "—";
+  const rounded = Number.isInteger(number) ? String(number) : number.toFixed(1);
+  return `${rounded}${suffix}`;
+}
+
+function average(values) {
+  const usable = values.map(Number).filter(Number.isFinite);
+  if (!usable.length) return null;
+  return usable.reduce((sum, value) => sum + value, 0) / usable.length;
+}
+
+function addInsightSection(container, title, metrics) {
+  const section = document.createElement("section");
+  section.className = "insight-section";
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  const list = document.createElement("div");
+  list.className = "insight-metrics";
+  metrics.forEach(([label, value]) => {
+    const row = document.createElement("div");
+    row.className = "insight-metric";
+    const labelElement = document.createElement("span");
+    labelElement.textContent = label;
+    const valueElement = document.createElement("strong");
+    valueElement.textContent = value;
+    row.append(labelElement, valueElement);
+    list.append(row);
+  });
+  section.append(heading, list);
+  container.append(section);
+}
+
+function createTeamInsightCard(team) {
+  const card = document.createElement("article");
+  card.className = "insight-team";
+  const heading = document.createElement("h3");
+  heading.textContent = team.team;
+  card.append(heading);
+
+  const qb = team.quarterback;
+  addInsightSection(card, "Quarterback", qb ? [
+    ["Starter by passing yards", qb.name],
+    ["Passing yards", `${formatMetric(qb.passing_yards)} · ${formatMetric(qb.passing_yards_per_game, " / game")}`],
+    ["Passing TD / INT", `${formatMetric(qb.passing_touchdowns)} / ${formatMetric(qb.passing_interceptions)}`],
+    ["Rushing yards", `${formatMetric(qb.rushing_yards)} · ${formatMetric(qb.rushing_yards_per_game, " / game")}`],
+    ["Rushing TD", formatMetric(qb.rushing_touchdowns)],
+    ["Sacks taken", formatMetric(qb.sacks_taken)],
+  ] : [["Status", "No qualifying quarterback record returned"]]);
+
+  addInsightSection(card, "Offense", [
+    ["Points per game", formatMetric(team.offense.points_per_game)],
+    ["Pass yards per game", formatMetric(team.offense.passing_yards_per_game)],
+    ["Rush yards per game", formatMetric(team.offense.rushing_yards_per_game)],
+    ["Sacks allowed per game", formatMetric(team.offense.sacks_allowed_per_game)],
+    ["Touchdowns per game", formatMetric(team.offense.touchdowns_per_game)],
+    ["Red-zone TD rate", formatMetric(team.offense.red_zone_touchdown_rate, "%")],
+  ]);
+  addInsightSection(card, "Defense", [
+    ["Points allowed per game", formatMetric(team.defense.points_allowed_per_game)],
+    ["Pass yards allowed per game", formatMetric(team.defense.passing_yards_allowed_per_game)],
+    ["Rush yards allowed per game", formatMetric(team.defense.rushing_yards_allowed_per_game)],
+    ["Sacks per game", formatMetric(team.defense.sacks_per_game)],
+    ["Interceptions per game", formatMetric(team.defense.interceptions_per_game)],
+    ["Opp. red-zone TD rate", formatMetric(team.defense.red_zone_touchdown_rate_allowed, "%")],
+  ]);
+  return card;
+}
+
+function consensusMarketPoint(event, marketKey, outcomeName) {
+  const points = (event.bookmakers || []).flatMap((bookmaker) => (bookmaker.markets || []))
+    .filter((market) => market.key === marketKey)
+    .flatMap((market) => market.outcomes || [])
+    .filter((outcome) => outcome.name === outcomeName)
+    .map((outcome) => outcome.point);
+  return average(points);
+}
+
+function marketComparison(event, summary) {
+  const candidates = [];
+  const totalLine = consensusMarketPoint(event, "totals", "Over");
+  if (summary.estimated_total !== null && totalLine !== null) {
+    const gap = summary.estimated_total - totalLine;
+    candidates.push({
+      strength: Math.abs(gap),
+      label: `${gap >= 0 ? "Over" : "Under"} ${totalLine.toFixed(1)}`,
+      detail: `The scoring blend is ${summary.estimated_total.toFixed(1)} versus a ${totalLine.toFixed(1)} consensus total.`,
+    });
+  }
+  const homeSpread = consensusMarketPoint(event, "spreads", event.home_team);
+  if (summary.estimated_home_margin !== null && homeSpread !== null) {
+    const gap = summary.estimated_home_margin + homeSpread;
+    candidates.push({
+      strength: Math.abs(gap),
+      label: `${gap >= 0 ? event.home_team : event.away_team} spread`,
+      detail: `The scoring blend's home margin is ${summary.estimated_home_margin.toFixed(1)} versus the home spread of ${homeSpread > 0 ? "+" : ""}${homeSpread.toFixed(1)}.`,
+    });
+  }
+  const strongest = candidates.sort((first, second) => second.strength - first.strength)[0];
+  if (!strongest || strongest.strength < 2.5) {
+    return "No clear model-to-market gap was found from the current consensus spread or total. Review the matchup; do not force a wager.";
+  }
+  return `Strongest model-to-market signal: ${strongest.label}. ${strongest.detail} This is a research lead, not a guaranteed or personalized bet.`;
+}
+
+function nflSeasonForGame(game) {
+  const date = new Date(game.commence_time);
+  const year = date.getUTCFullYear() - (date.getUTCMonth() <= 2 ? 1 : 0);
+  return `${year}REG`;
+}
+
+function displayNflInsights(data, game) {
+  insightResult.replaceChildren();
+  const grid = document.createElement("div");
+  grid.className = "insight-team-grid";
+  grid.append(createTeamInsightCard(data.home), createTeamInsightCard(data.away));
+  const summary = document.createElement("article");
+  summary.className = "insight-summary";
+  const heading = document.createElement("h3");
+  heading.textContent = "Transparent matchup context";
+  const estimate = document.createElement("p");
+  estimate.textContent = `Season-to-date scoring blend: ${data.home.team} ${formatMetric(data.matchup_summary.estimated_home_points)} — ${data.away.team} ${formatMetric(data.matchup_summary.estimated_away_points)} (total ${formatMetric(data.matchup_summary.estimated_total)}).`;
+  const method = document.createElement("p");
+  method.textContent = data.matchup_summary.method;
+  const market = document.createElement("p");
+  market.textContent = marketComparison(game, data.matchup_summary);
+  const disclaimer = document.createElement("p");
+  disclaimer.textContent = data.matchup_summary.disclaimer;
+  summary.append(heading, estimate, method, market, disclaimer);
+  insightResult.append(grid, summary);
+}
+
+async function showNflInsights(game) {
+  setActiveTab("insights");
+  insightMatchup.textContent = `${game.away_team} at ${game.home_team}`;
+  insightResult.replaceChildren();
+  setInlineStatus(insightStatus, "Loading authorized NFL team and quarterback stats…");
+  const query = new URLSearchParams({
+    home_team: game.home_team,
+    away_team: game.away_team,
+    season: nflSeasonForGame(game),
+  });
+  try {
+    const response = await fetch(`/insights/nfl?${query}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Unable to load NFL team insights.");
+    if (!data.available) {
+      setInlineStatus(insightStatus, data.reason || "SportsDataIO has not been configured for this app.", true);
+      return;
+    }
+    displayNflInsights(data, game);
+    setInlineStatus(insightStatus, `Season-to-date ${data.season} context from ${data.source}. Responses are cached for ${data.cache_minutes} minutes to preserve plan usage.`);
+  } catch (error) {
+    setInlineStatus(insightStatus, error.message, true);
+  }
 }
 
 function formatGameTime(value) {
@@ -195,7 +370,7 @@ function displayMarkets(markets = []) {
     .join("");
 }
 
-function displayEvent(event) {
+function displayEvent(event, league) {
   const bookmakers = (event.bookmakers || [])
     .map(
       (bookmaker) => `
@@ -218,7 +393,8 @@ function displayEvent(event) {
         </div>
         <div class="event-actions">
           <span class="comparison-count">${event.bookmakers?.length || 0} books</span>
-          <button class="secondary-button venue-event-button" type="button" data-home-team="${escapeHtml(event.home_team)}" data-league="${leagueInput.value}" data-commence-time="${escapeHtml(event.commence_time)}">Use home venue</button>
+          <button class="secondary-button venue-event-button" type="button" data-home-team="${escapeHtml(event.home_team)}" data-league="${escapeHtml(league)}" data-commence-time="${escapeHtml(event.commence_time)}">Use home venue</button>
+          ${league === "nfl" ? `<button class="secondary-button insight-event-button" type="button" data-event-key="${escapeHtml(`${league}:${event.id}`)}">Analyze matchup</button>` : ""}
         </div>
       </div>
       <div class="bookmaker-grid">${bookmakers || "<p>No selected sportsbook lines are available for this event.</p>"}</div>
@@ -251,8 +427,13 @@ async function loadOdds() {
       <span><strong>${data.event_count}</strong> events</span>
       <span><strong>${data.usage.requests_remaining ?? "—"}</strong> credits remaining</span>
       <span>Markets: ${data.markets.join(", ")}</span>`;
-    eventsContainer.innerHTML = data.events.map(displayEvent).join("");
     populateUpcomingGames(data.events, league);
+    eventsContainer.innerHTML = data.events.map((event) => displayEvent(event, league)).join("");
+    if (league !== "nfl") {
+      insightMatchup.textContent = "Choose an NFL matchup";
+      insightResult.replaceChildren();
+      setInlineStatus(insightStatus, "Load NFL odds, then choose a game to analyze.");
+    }
   } catch (error) {
     status.textContent = `Could not load odds: ${error.message}`;
     status.classList.add("error");
@@ -264,6 +445,10 @@ async function loadOdds() {
 }
 
 refreshButton.addEventListener("click", loadOdds);
+
+tabButtons.forEach((button) => {
+  button.addEventListener("click", () => setActiveTab(button.dataset.tab));
+});
 
 venueLeague.addEventListener("change", () => loadVenueTeams());
 leagueInput.addEventListener("change", () => {
@@ -305,6 +490,12 @@ venueForm.addEventListener("submit", async (event) => {
 });
 
 eventsContainer.addEventListener("click", async (event) => {
+  const insightAction = event.target.closest(".insight-event-button");
+  if (insightAction) {
+    const game = upcomingGames.get(insightAction.dataset.eventKey);
+    if (game) await showNflInsights(game);
+    return;
+  }
   const action = event.target.closest(".venue-event-button");
   if (!action) return;
   venueLeague.value = action.dataset.league;

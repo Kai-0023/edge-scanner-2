@@ -25,7 +25,11 @@ from logic.projection_models import nfl_projection, nba_projection
 from logic.slip_ocr import OCRUnavailable, extract_bet_slip
 from logic.venue_registry import home_venue, list_venues
 from scrapers.odds_scraper import OddsProviderUnavailable, fetch_odds_comparison
-from scrapers.sportsdata_scraper import SportsDataUnavailable, fetch_injuries
+from scrapers.sportsdata_scraper import (
+    SportsDataUnavailable,
+    fetch_injuries,
+    fetch_nfl_matchup_insights,
+)
 from scrapers.weather_scraper import WeatherProviderUnavailable, fetch_game_weather
 
 
@@ -206,6 +210,30 @@ async def venue_context(
         except (ValueError, WeatherProviderUnavailable) as exc:
             result["weather_unavailable"] = str(exc)
     return result
+
+
+@app.get("/insights/nfl")
+async def nfl_team_insights(
+    home_team: str = Query(..., min_length=2, description="Designated NFL home team from the selected odds event."),
+    away_team: str = Query(..., min_length=2, description="Designated NFL away team from the selected odds event."),
+    season: str = Query(..., pattern=r"^\d{4}(REG|PRE|POST)$", description="SportsDataIO NFL season, such as 2026REG."),
+) -> dict[str, Any]:
+    """Return authorized season-to-date NFL context for one selected game.
+
+    A missing key or plan coverage is reported as an available-in-app message so
+    the dashboard never substitutes made-up performance statistics.
+    """
+
+    try:
+        return await fetch_nfl_matchup_insights(home_team, away_team, season)
+    except SportsDataUnavailable as exc:
+        return {
+            "available": False,
+            "source": "SportsDataIO",
+            "season": season,
+            "reason": str(exc),
+            "disclaimer": "No player or team efficiency values were estimated without an authorized stats response.",
+        }
 
 
 @app.post("/tracking/ocr")

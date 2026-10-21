@@ -34,6 +34,7 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 - `POST /projection/nba` and `POST /projection/nfl` return a transparent matchup explanation that identifies the supplied factors driving the baseline result. It is not a trained ML prediction.
 - `GET /venues/nba` and `GET /venues/nfl` list all configured home arenas and stadiums.
 - `GET /venue-context/{league}?home_team=...` resolves the location from the home team only. For NFL, add `game_time_local` to include Open-Meteo venue weather.
+- `GET /insights/nfl?home_team=...&away_team=...&season=2026REG` returns authorized season-to-date NFL QB, offense, defense, and red-zone context. It is inactive until you configure SportsDataIO.
 - `POST /tracking/ocr` reads a slip image in memory when local OCR is installed. `POST /tracking/entries` stores only fields the user reviews and confirms.
 
 ## Live-data note
@@ -65,6 +66,12 @@ Edge Scanner now creates a local SQLite database at `data/processed/edge_scanner
 - `POST /sync/injuries/nfl?season=2026REG&week=1` does the same for NFL, using the required season and week.
 
 Add `SPORTS_DATA_IO_API_KEY` only after purchasing or otherwise obtaining authorized access to the NBA/NFL data feeds. Do not send the key to chat or commit it to GitHub.
+
+### NFL team insights
+
+The dashboard's **Team insights** tab is designed for SportsDataIO NFL Team & Player Stats access. From an NFL event, choose **Analyze matchup** to review season-to-date quarterback passing/rushing, team scoring, pass/rush production, sacks, interceptions, and red-zone touchdown rates. The app caches provider data for 15 minutes.
+
+The tab calculates a transparent scoring-context blend from each team's points per game and its opponent's points allowed per game. If a consensus spread or total is available from The Odds API, it highlights only the largest model-to-market difference as a research lead. It is not a probability, a validated model, or a guaranteed/personalized betting recommendation.
 
 ## Baseline projections
 

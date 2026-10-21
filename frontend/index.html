@@ -15,6 +15,12 @@
         <p class="disclaimer">Matchup explanations are transparent baseline calculations, not trained AI predictions or betting advice.</p>
       </header>
 
+      <nav class="app-tabs" aria-label="Dashboard sections" role="tablist">
+        <button id="tab-odds" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="odds-panel" data-tab="odds">Odds &amp; games</button>
+        <button id="tab-insights" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="insights-panel" data-tab="insights">Team insights</button>
+      </nav>
+
+      <section id="odds-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-odds">
       <section class="controls" aria-label="Odds controls">
         <label>
           League
@@ -115,6 +121,17 @@
           </form>
           <p id="tracking-status" class="inline-status" aria-live="polite"></p>
           <ul id="tracking-list" class="tracking-list" aria-live="polite"></ul>
+        </article>
+      </section>
+      </section>
+
+      <section id="insights-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-insights" hidden>
+        <article class="insight-card">
+          <p class="eyebrow">NFL TEAM INSIGHTS</p>
+          <h2 id="insight-matchup">Choose an NFL matchup</h2>
+          <p>Choose <strong>Analyze matchup</strong> on an NFL game to review season-to-date quarterback, offense, defense, and red-zone context. The app compares its simple scoring blend with the current spread or total when available; it never guarantees a bet.</p>
+          <p id="insight-status" class="inline-status" aria-live="polite">Load NFL odds, then choose a game to analyze.</p>
+          <div id="insight-result" class="insight-result" aria-live="polite"></div>
         </article>
       </section>
     </main>
