@@ -35,7 +35,7 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 - `GET /venues/nba` and `GET /venues/nfl` list all configured home arenas and stadiums.
 - `GET /venue-context/{league}?home_team=...` resolves the location from the home team only. For NFL, add `game_time_local` to include Open-Meteo venue weather.
 - `GET /insights/nfl?home_team=...&away_team=...&season=2026` returns authorized season-to-date NFL QB, offense, defense, and red-zone context.
-- `GET /insights/nba?home_team=...&away_team=...&season=2026` returns authorized NBA team averages, notable player statistics, and provider-reported availability when that feed returns it.
+- `GET /insights/nba?home_team=...&away_team=...&season=2026` returns authorized NBA team averages, completed-game form, current notable-player statistics, and a separately labeled prior-season player reference.
 - `POST /tracking/ocr` reads a slip image in memory when local OCR is installed. `POST /tracking/entries` stores only fields the user reviews and confirms.
 
 ## Live-data note
@@ -77,7 +77,9 @@ If one API-Sports key is authorized for both subscriptions, use `API_SPORTS_KEY`
 
 ### Team insights
 
-From an NFL event, choose **Analyze matchup** to review season-to-date quarterback passing/rushing, team scoring, pass/rush production, sacks, interceptions, and red-zone touchdown rates. From an NBA event, the same action shows team averages, a small list of leading scorers, and availability only when the provider returns it. Both feeds are cached for 15 minutes to reduce API usage.
+From an NFL event, choose **Analyze matchup** to review season-to-date quarterback passing/rushing, team scoring, pass/rush production, sacks, interceptions, and red-zone touchdown rates. From an NBA event, the same action shows current team averages, completed-game form, current player logs, and availability only when the provider returns it. It also shows a clearly separate prior-season player reference so established players who are resting or absent from preseason game logs are not hidden. Prior-season data does not affect the current-season scoring blend and must not be treated as a current roster or availability confirmation. Both feeds are cached for 15 minutes to reduce API usage.
+
+Read the [NBA Team Insights Guide](docs/nba-team-insights.md) for definitions, data limits, and the API response structure.
 
 The tab calculates a transparent scoring-context blend from each team's points per game and its opponent's points allowed per game. If a consensus spread or total is available from The Odds API, it highlights only the largest model-to-market difference as a research lead. It is not a probability, a validated model, or a guaranteed/personalized betting recommendation.
 
