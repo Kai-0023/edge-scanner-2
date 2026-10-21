@@ -260,6 +260,7 @@ def test_nba_direct_stat_and_game_log_shape_is_normalized() -> None:
             }
         ],
         2025,
+        [{"name": "Historical Star"}],
     )
 
     assert result["games"] == 10
@@ -277,5 +278,25 @@ def test_nba_direct_stat_and_game_log_shape_is_normalized() -> None:
     assert result["notable_players"][0]["name"] == "Player Example"
     assert result["notable_players"][0]["points_per_game"] == 23
     assert result["historical_player_context"]["season"] == "2025"
+    assert result["historical_player_context"]["roster_verified"] is True
     assert result["historical_player_context"]["players"][0]["name"] == "Historical Star"
     assert result["historical_player_context"]["players"][0]["availability"] is None
+
+
+def test_nba_historical_players_exclude_players_no_longer_on_the_current_roster() -> None:
+    result = summarize_nba_team(
+        "Example Team",
+        {"games": 1, "points": 100, "fgm": 40, "fga": 80, "tpm": 10, "tpa": 30, "ftm": 10, "fta": 12},
+        [],
+        [],
+        historical_player_records=[
+            {"player": {"name": "Former Player"}, "game": {"id": 1}, "points": 30, "totReb": 5, "assists": 4},
+            {"player": {"name": "Returning Player"}, "game": {"id": 2}, "points": 18, "totReb": 7, "assists": 6},
+        ],
+        historical_season=2025,
+        current_roster_records=[{"firstname": "Returning", "lastname": "Player"}],
+    )
+
+    historical = result["historical_player_context"]
+    assert historical["roster_verified"] is True
+    assert [player["name"] for player in historical["players"]] == ["Returning Player"]

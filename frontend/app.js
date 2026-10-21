@@ -252,13 +252,20 @@ function createNbaTeamInsightCard(team, side) {
 
   const historical = team.historical_player_context;
   const historicalPlayers = historical?.players || [];
-  addInsightSection(card, `Established players · ${nbaSeasonLabel(historical?.season)}`, historicalPlayers.length ? [
-    ["Context", "Prior-season production only; confirm the current roster and availability."],
-    ...historicalPlayers.map((player) => [
-      player.name,
-      `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
-    ]),
-  ] : [["Status", "No prior-season player records were returned"]], "player-section historical-section");
+  if (historical) {
+    const historicalMetrics = !historical.roster_verified
+      ? [["Status", "Past-season player stats are hidden because the current roster could not be confirmed."]]
+      : historicalPlayers.length
+        ? [
+          ["Context", "Prior-season production for players confirmed on the current roster."],
+          ...historicalPlayers.map((player) => [
+            player.name,
+            `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
+          ]),
+        ]
+        : [["Status", "No current-roster players had prior-season statistics returned."]];
+    addInsightSection(card, `Returning players · ${nbaSeasonLabel(historical.season)}`, historicalMetrics, "player-section historical-section");
+  }
   return card;
 }
 

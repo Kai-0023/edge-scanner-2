@@ -373,7 +373,12 @@ def _player_name(record: dict[str, Any]) -> str:
         return name
     player = record.get("player") if isinstance(record.get("player"), dict) else {}
     first_last = " ".join(
-        str(part).strip() for part in [player.get("firstname"), player.get("lastname")] if part
+        str(part).strip()
+        for part in [
+            player.get("firstname") or record.get("firstname") or record.get("firstName"),
+            player.get("lastname") or record.get("lastname") or record.get("lastName"),
+        ]
+        if part
     )
     return first_last or "Player unavailable"
 
@@ -476,8 +481,12 @@ def _notable_nba_players(
     injury_records: list[dict[str, Any]] | None,
     *,
     historical: bool = False,
+    allowed_player_names: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     injuries = _injury_map(injury_records)
+
+    def included(record: dict[str, Any]) -> bool:
+        return allowed_player_names is None or _normalize(_player_name(record)) in allowed_player_names
 
     def availability(name: str) -> str | None:
         if historical:
@@ -487,7 +496,10 @@ def _notable_nba_players(
             "No current injury report returned" if injury_records is not None else "Availability data unavailable",
         )
 
-    game_logs = [record for record in records if isinstance(record.get("game"), dict) and "points" in record]
+    game_logs = [
+        record for record in records
+        if included(record) and isinstance(record.get("game"), dict) and "points" in record
+    ]
     if game_logs:
         aggregates: dict[str, dict[str, Any]] = {}
         for record in game_logs:
@@ -523,6 +535,8 @@ def _notable_nba_players(
 
     players: list[dict[str, Any]] = []
     for record in records:
+        if not included(record):
+            continue
         values = _flatten_numbers(record)
         points = _find_number(values, "points", "average")
         if points is None:
@@ -541,6 +555,19 @@ def _notable_nba_players(
             }
         )
     return sorted(players, key=lambda player: player["points_per_game"] or 0, reverse=True)[:3]
+
+
+def _roster_player_names(records: list[dict[str, Any]] | None) -> set[str] | None:
+    """Return the provider-confirmed current roster, or None when it was unavailable."""
+
+    if records is None:
+        return None
+    names = {
+        normalized
+        for record in records
+        if (normalized := _normalize(_player_name(record))) and normalized != _normalize("Player unavailable")
+    }
+    return names or None
 
 
 def _nba_form(game_records: list[dict[str, Any]] | None, team_id: str | None) -> dict[str, Any]:
@@ -585,6 +612,7 @@ def summarize_nba_team(
     team_id: str | None = None,
     historical_player_records: list[dict[str, Any]] | None = None,
     historical_season: int | None = None,
+    current_roster_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normalize API-NBA season fields without inventing absent values."""
 
@@ -644,6 +672,20 @@ def summarize_nba_team(
     ]
     scored_points = [opponent for _, opponent in completed_scores if opponent is not None]
     points_allowed = _average(scored_points) or _stat_per_game(values, games, "points", "against")
+    current_roster_names = _roster_player_names(current_roster_records)
+    historical_context = None
+    if historical_season is not None and historical_player_records is not None:
+        historical_context = {
+            "season": str(historical_season),
+            "players": _notable_nba_players(
+                historical_player_records,
+                None,
+                historical=True,
+                allowed_player_names=current_roster_names,
+            ) if current_roster_names is not None else [],
+            "roster_verified": current_roster_names is not None,
+        }
+
     return {
         "team": team_name,
         "games": games,
@@ -669,12 +711,7 @@ def summarize_nba_team(
         },
         "form": _nba_form(game_records, team_id),
         "notable_players": _notable_nba_players(player_records, injury_records),
-        "historical_player_context": {
-            "season": str(historical_season),
-            "players": _notable_nba_players(historical_player_records, None, historical=True),
-        }
-        if historical_season is not None and historical_player_records is not None
-        else None,
+        "historical_player_context": historical_context,
     }
 
 
@@ -766,12 +803,13 @@ async def fetch_nba_matchup_insights(home_team: str, away_team: str, season: int
 
     async def team_context(team: dict[str, Any], name: str) -> dict[str, Any]:
         team_id = str(team["id"])
-        stats, players, injuries, games, historical_players = await asyncio.gather(
+        stats, players, injuries, games, historical_players, current_roster = await asyncio.gather(
             _get("nba", "teams/statistics", {"id": team_id, "season": season}),
             _optional_get("nba", "players/statistics", {"team": team_id, "season": season}),
             _optional_get("nba", "injuries", {"team": team_id, "season": season}),
             _optional_get("nba", "games", {"team": team_id, "season": season}),
             _optional_get("nba", "players/statistics", {"team": team_id, "season": season - 1}),
+            _optional_get("nba", "players", {"team": team_id, "season": season}),
         )
         records = _records(stats)
         if not records:
@@ -785,6 +823,7 @@ async def fetch_nba_matchup_insights(home_team: str, away_team: str, season: int
             team_id,
             _records(historical_players),
             season - 1,
+            _records(current_roster) if current_roster is not None else None,
         )
 
     home_context, away_context = await asyncio.gather(team_context(home, home_team), team_context(away, away_team))
