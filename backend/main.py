@@ -25,9 +25,10 @@ from logic.projection_models import nfl_projection, nba_projection
 from logic.slip_ocr import OCRUnavailable, extract_bet_slip
 from logic.venue_registry import home_venue, list_venues
 from scrapers.odds_scraper import OddsProviderUnavailable, fetch_odds_comparison
-from scrapers.sportsdata_scraper import (
-    SportsDataUnavailable,
+from scrapers.api_sports_scraper import (
+    ApiSportsUnavailable,
     fetch_injuries,
+    fetch_nba_matchup_insights,
     fetch_nfl_matchup_insights,
 )
 from scrapers.weather_scraper import WeatherProviderUnavailable, fetch_game_weather
@@ -216,7 +217,7 @@ async def venue_context(
 async def nfl_team_insights(
     home_team: str = Query(..., min_length=2, description="Designated NFL home team from the selected odds event."),
     away_team: str = Query(..., min_length=2, description="Designated NFL away team from the selected odds event."),
-    season: str = Query(..., pattern=r"^\d{4}(REG|PRE|POST)$", description="SportsDataIO NFL season, such as 2026REG."),
+    season: int = Query(..., ge=2020, le=2100, description="NFL season start year, such as 2026."),
 ) -> dict[str, Any]:
     """Return authorized season-to-date NFL context for one selected game.
 
@@ -226,13 +227,33 @@ async def nfl_team_insights(
 
     try:
         return await fetch_nfl_matchup_insights(home_team, away_team, season)
-    except SportsDataUnavailable as exc:
+    except ApiSportsUnavailable as exc:
         return {
             "available": False,
-            "source": "SportsDataIO",
-            "season": season,
+            "source": "API-Sports NFL",
+            "season": str(season),
             "reason": str(exc),
             "disclaimer": "No player or team efficiency values were estimated without an authorized stats response.",
+        }
+
+
+@app.get("/insights/nba")
+async def nba_team_insights(
+    home_team: str = Query(..., min_length=2, description="Designated NBA home team from the selected odds event."),
+    away_team: str = Query(..., min_length=2, description="Designated NBA away team from the selected odds event."),
+    season: int = Query(..., ge=2020, le=2100, description="NBA season start year, such as 2026."),
+) -> dict[str, Any]:
+    """Return authorized NBA team and notable-player context for one game."""
+
+    try:
+        return await fetch_nba_matchup_insights(home_team, away_team, season)
+    except ApiSportsUnavailable as exc:
+        return {
+            "available": False,
+            "source": "API-Sports NBA",
+            "season": str(season),
+            "reason": str(exc),
+            "disclaimer": "No player, injury, or team values were estimated without an authorized stats response.",
         }
 
 
@@ -266,7 +287,7 @@ def list_tracking_entries(limit: int = Query(default=8, ge=1, le=50)) -> dict[st
 @app.post("/sync/injuries/{league}")
 async def sync_injuries(
     league: str,
-    season: str | None = Query(default=None, description="NFL season such as 2026REG."),
+    season: str | None = Query(default=None, description="Season start year, such as 2026."),
     week: int | None = Query(default=None, ge=0, le=25, description="NFL week number."),
 ) -> dict[str, Any]:
     """Fetch and timestamp authorized injury records in the local database."""
@@ -275,7 +296,7 @@ async def sync_injuries(
         injuries = await fetch_injuries(league, season, week)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except SportsDataUnavailable as exc:
+    except ApiSportsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return {

@@ -95,7 +95,7 @@ function addInsightSection(container, title, metrics) {
   container.append(section);
 }
 
-function createTeamInsightCard(team) {
+function createNflTeamInsightCard(team) {
   const card = document.createElement("article");
   card.className = "insight-team";
   const heading = document.createElement("h3");
@@ -128,6 +128,37 @@ function createTeamInsightCard(team) {
     ["Interceptions per game", formatMetric(team.defense.interceptions_per_game)],
     ["Opp. red-zone TD rate", formatMetric(team.defense.red_zone_touchdown_rate_allowed, "%")],
   ]);
+  return card;
+}
+
+function createNbaTeamInsightCard(team) {
+  const card = document.createElement("article");
+  card.className = "insight-team";
+  const heading = document.createElement("h3");
+  heading.textContent = team.team;
+  card.append(heading);
+
+  addInsightSection(card, "Team averages", [
+    ["Games", formatMetric(team.games)],
+    ["Points per game", formatMetric(team.offense.points_per_game)],
+    ["Field-goal percentage", formatMetric(team.offense.field_goal_percentage, "%")],
+    ["Three-point percentage", formatMetric(team.offense.three_point_percentage, "%")],
+    ["Rebounds per game", formatMetric(team.offense.rebounds_per_game)],
+    ["Assists per game", formatMetric(team.offense.assists_per_game)],
+    ["Turnovers per game", formatMetric(team.offense.turnovers_per_game)],
+  ]);
+  addInsightSection(card, "Defense", [
+    ["Points allowed per game", formatMetric(team.defense.points_allowed_per_game)],
+    ["Steals per game", formatMetric(team.defense.steals_per_game)],
+    ["Blocks per game", formatMetric(team.defense.blocks_per_game)],
+    ["Opponent field-goal percentage", formatMetric(team.defense.opponent_field_goal_percentage, "%")],
+  ]);
+
+  const players = team.notable_players || [];
+  addInsightSection(card, "Notable players", players.length ? players.flatMap((player) => [
+    [player.name, `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`],
+    ["Availability", player.availability],
+  ]) : [["Status", "No player statistics were returned"]]);
   return card;
 }
 
@@ -167,17 +198,17 @@ function marketComparison(event, summary) {
   return `Strongest model-to-market signal: ${strongest.label}. ${strongest.detail} This is a research lead, not a guaranteed or personalized bet.`;
 }
 
-function nflSeasonForGame(game) {
+function seasonForGame(game) {
   const date = new Date(game.commence_time);
-  const year = date.getUTCFullYear() - (date.getUTCMonth() <= 2 ? 1 : 0);
-  return `${year}REG`;
+  const startsPreviousCalendarYear = game.league === "nfl" ? date.getUTCMonth() <= 2 : date.getUTCMonth() <= 5;
+  return String(date.getUTCFullYear() - (startsPreviousCalendarYear ? 1 : 0));
 }
 
 function displayNflInsights(data, game) {
   insightResult.replaceChildren();
   const grid = document.createElement("div");
   grid.className = "insight-team-grid";
-  grid.append(createTeamInsightCard(data.home), createTeamInsightCard(data.away));
+  grid.append(createNflTeamInsightCard(data.home), createNflTeamInsightCard(data.away));
   const summary = document.createElement("article");
   summary.className = "insight-summary";
   const heading = document.createElement("h3");
@@ -194,25 +225,47 @@ function displayNflInsights(data, game) {
   insightResult.append(grid, summary);
 }
 
-async function showNflInsights(game) {
+function displayNbaInsights(data, game) {
+  insightResult.replaceChildren();
+  const grid = document.createElement("div");
+  grid.className = "insight-team-grid";
+  grid.append(createNbaTeamInsightCard(data.home), createNbaTeamInsightCard(data.away));
+  const summary = document.createElement("article");
+  summary.className = "insight-summary";
+  const heading = document.createElement("h3");
+  heading.textContent = "Transparent matchup context";
+  const estimate = document.createElement("p");
+  estimate.textContent = `Season-to-date scoring blend: ${data.home.team} ${formatMetric(data.matchup_summary.estimated_home_points)} — ${data.away.team} ${formatMetric(data.matchup_summary.estimated_away_points)} (total ${formatMetric(data.matchup_summary.estimated_total)}).`;
+  const method = document.createElement("p");
+  method.textContent = data.matchup_summary.method;
+  const market = document.createElement("p");
+  market.textContent = marketComparison(game, data.matchup_summary);
+  const disclaimer = document.createElement("p");
+  disclaimer.textContent = data.matchup_summary.disclaimer;
+  summary.append(heading, estimate, method, market, disclaimer);
+  insightResult.append(grid, summary);
+}
+
+async function showTeamInsights(game) {
   setActiveTab("insights");
   insightMatchup.textContent = `${game.away_team} at ${game.home_team}`;
   insightResult.replaceChildren();
-  setInlineStatus(insightStatus, "Loading authorized NFL team and quarterback stats…");
+  setInlineStatus(insightStatus, `Loading authorized ${game.league.toUpperCase()} team data…`);
   const query = new URLSearchParams({
     home_team: game.home_team,
     away_team: game.away_team,
-    season: nflSeasonForGame(game),
+    season: seasonForGame(game),
   });
   try {
-    const response = await fetch(`/insights/nfl?${query}`);
+    const response = await fetch(`/insights/${game.league}?${query}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Unable to load NFL team insights.");
+    if (!response.ok) throw new Error(data.detail || `Unable to load ${game.league.toUpperCase()} team insights.`);
     if (!data.available) {
-      setInlineStatus(insightStatus, data.reason || "SportsDataIO has not been configured for this app.", true);
+      setInlineStatus(insightStatus, data.reason || `API-Sports ${game.league.toUpperCase()} has not been configured for this app.`, true);
       return;
     }
-    displayNflInsights(data, game);
+    if (game.league === "nfl") displayNflInsights(data, game);
+    else displayNbaInsights(data, game);
     setInlineStatus(insightStatus, `Season-to-date ${data.season} context from ${data.source}. Responses are cached for ${data.cache_minutes} minutes to preserve plan usage.`);
   } catch (error) {
     setInlineStatus(insightStatus, error.message, true);
@@ -394,7 +447,7 @@ function displayEvent(event, league) {
         <div class="event-actions">
           <span class="comparison-count">${event.bookmakers?.length || 0} books</span>
           <button class="secondary-button venue-event-button" type="button" data-home-team="${escapeHtml(event.home_team)}" data-league="${escapeHtml(league)}" data-commence-time="${escapeHtml(event.commence_time)}">Use home venue</button>
-          ${league === "nfl" ? `<button class="secondary-button insight-event-button" type="button" data-event-key="${escapeHtml(`${league}:${event.id}`)}">Analyze matchup</button>` : ""}
+          <button class="secondary-button insight-event-button" type="button" data-event-key="${escapeHtml(`${league}:${event.id}`)}">Analyze matchup</button>
         </div>
       </div>
       <div class="bookmaker-grid">${bookmakers || "<p>No selected sportsbook lines are available for this event.</p>"}</div>
@@ -429,11 +482,9 @@ async function loadOdds() {
       <span>Markets: ${data.markets.join(", ")}</span>`;
     populateUpcomingGames(data.events, league);
     eventsContainer.innerHTML = data.events.map((event) => displayEvent(event, league)).join("");
-    if (league !== "nfl") {
-      insightMatchup.textContent = "Choose an NFL matchup";
-      insightResult.replaceChildren();
-      setInlineStatus(insightStatus, "Load NFL odds, then choose a game to analyze.");
-    }
+    insightMatchup.textContent = "Choose a matchup";
+    insightResult.replaceChildren();
+    setInlineStatus(insightStatus, "Choose Analyze matchup on an NFL or NBA game to load its authorized team data.");
   } catch (error) {
     status.textContent = `Could not load odds: ${error.message}`;
     status.classList.add("error");
@@ -493,7 +544,7 @@ eventsContainer.addEventListener("click", async (event) => {
   const insightAction = event.target.closest(".insight-event-button");
   if (insightAction) {
     const game = upcomingGames.get(insightAction.dataset.eventKey);
-    if (game) await showNflInsights(game);
+    if (game) await showTeamInsights(game);
     return;
   }
   const action = event.target.closest(".venue-event-button");
