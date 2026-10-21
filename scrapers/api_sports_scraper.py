@@ -24,6 +24,7 @@ NFL_BASE_URL = "https://v1.american-football.api-sports.io"
 NBA_BASE_URL = "https://v2.nba.api-sports.io"
 CACHE_SECONDS = 15 * 60
 MAX_NFL_COMPLETED_GAMES = 18
+MAX_NFL_QUARTERBACKS = 8
 
 _cache: dict[str, tuple[float, Any]] = {}
 
@@ -42,7 +43,7 @@ def _number(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, str):
-        value = value.strip().replace("%", "")
+        value = value.strip().replace("%", "").replace(",", "")
         if not value:
             return None
     try:
@@ -264,29 +265,105 @@ def _score_for_team(game: dict[str, Any], team_id: str) -> tuple[float | None, f
     return None, None
 
 
-def _nfl_stat_sample(game: dict[str, Any], team_id: str, records: list[dict[str, Any]]) -> dict[str, float | None] | None:
+def _first_number(*values: float | None) -> float | None:
+    """Return the first supplied numeric value, preserving valid zeros."""
+
+    return next((value for value in values if value is not None), None)
+
+
+def _stat_pair(value: Any) -> tuple[float | None, float | None]:
+    """Parse paired provider values such as ``2-3`` or ``4/27``."""
+
+    if not isinstance(value, str):
+        return None, None
+    numbers = [_number(part) for part in re.findall(r"\d+(?:\.\d+)?", value)]
+    return (numbers[0] if len(numbers) >= 1 else None, numbers[1] if len(numbers) >= 2 else None)
+
+
+def _team_stat_block(record: dict[str, Any]) -> dict[str, Any]:
+    statistics = record.get("statistics")
+    return statistics if isinstance(statistics, dict) else record
+
+
+def _team_touchdowns(events: list[dict[str, Any]], team_id: str) -> float:
+    """Count provider scoring events rather than guessing TDs from point totals."""
+
+    return float(
+        sum(
+            str(_nested(event, "team", "id")) == team_id and str(event.get("type") or "").upper() == "TD"
+            for event in events
+        )
+    )
+
+
+def _nfl_stat_sample(
+    game: dict[str, Any],
+    team_id: str,
+    records: list[dict[str, Any]],
+    event_records: list[dict[str, Any]] | None = None,
+) -> dict[str, float | None] | None:
     team_record = next((record for record in records if _team_id(record) == team_id), None)
     if not team_record:
         return None
     opponent_record = next((record for record in records if _team_id(record) != team_id), None)
-    own_stats = _flatten_numbers(team_record.get("statistics", team_record))
-    opponent_stats = _flatten_numbers((opponent_record or {}).get("statistics", opponent_record or {}))
+    own_block = _team_stat_block(team_record)
+    opponent_block = _team_stat_block(opponent_record or {})
+    own_stats = _flatten_numbers(own_block)
+    opponent_stats = _flatten_numbers(opponent_block)
+    own_sacks_lost, _ = _stat_pair(_nested(own_block, "passing", "sacks_yards_lost"))
+    opponent_sacks_lost, _ = _stat_pair(_nested(opponent_block, "passing", "sacks_yards_lost"))
+    own_red_zone_made, own_red_zone_attempts = _stat_pair(_nested(own_block, "red_zone", "made_att"))
+    opponent_red_zone_made, opponent_red_zone_attempts = _stat_pair(
+        _nested(opponent_block, "red_zone", "made_att")
+    )
     points_for, points_allowed = _score_for_team(game, team_id)
     return {
         "points_for": points_for,
         "points_allowed": points_allowed,
-        "passing_yards": _find_number(own_stats, "passing", "yards"),
-        "rushing_yards": _find_number(own_stats, "rushing", "yards"),
-        "sacks_allowed": _find_number(own_stats, "sacks", "lost"),
-        "touchdowns": _find_number(own_stats, "touchdowns"),
-        "red_zone_attempts": _find_number(own_stats, "red", "zone", "attempt"),
-        "red_zone_touchdowns": _find_number(own_stats, "red", "zone", "touchdown"),
-        "passing_yards_allowed": _find_number(opponent_stats, "passing", "yards"),
-        "rushing_yards_allowed": _find_number(opponent_stats, "rushing", "yards"),
-        "sacks": _find_number(own_stats, "sacks"),
-        "interceptions": _find_number(own_stats, "interceptions"),
-        "red_zone_attempts_allowed": _find_number(opponent_stats, "red", "zone", "attempt"),
-        "red_zone_touchdowns_allowed": _find_number(opponent_stats, "red", "zone", "touchdown"),
+        "passing_yards": _first_number(
+            _number(_nested(own_block, "passing", "total")),
+            _find_number(own_stats, "passing", "yards"),
+        ),
+        "rushing_yards": _first_number(
+            _number(_nested(own_block, "rushings", "total")),
+            _number(_nested(own_block, "rushing", "total")),
+            _find_number(own_stats, "rushing", "yards"),
+        ),
+        "sacks_allowed": _first_number(own_sacks_lost, _find_number(own_stats, "sacks", "lost")),
+        "touchdowns": _team_touchdowns(event_records, team_id) if event_records is not None else None,
+        "red_zone_attempts": _first_number(
+            own_red_zone_attempts,
+            _find_number(own_stats, "red", "zone", "attempt"),
+        ),
+        "red_zone_touchdowns": _first_number(
+            own_red_zone_made,
+            _find_number(own_stats, "red", "zone", "touchdown"),
+        ),
+        "passing_yards_allowed": _first_number(
+            _number(_nested(opponent_block, "passing", "total")),
+            _find_number(opponent_stats, "passing", "yards"),
+        ),
+        "rushing_yards_allowed": _first_number(
+            _number(_nested(opponent_block, "rushings", "total")),
+            _number(_nested(opponent_block, "rushing", "total")),
+            _find_number(opponent_stats, "rushing", "yards"),
+        ),
+        "sacks": _first_number(
+            _number(_nested(own_block, "sacks", "total")),
+            _find_number(own_stats, "sacks"),
+        ),
+        "interceptions": _first_number(
+            _number(_nested(own_block, "interceptions", "total")),
+            _find_number(own_stats, "interceptions"),
+        ),
+        "red_zone_attempts_allowed": _first_number(
+            opponent_red_zone_attempts,
+            _find_number(opponent_stats, "red", "zone", "attempt"),
+        ),
+        "red_zone_touchdowns_allowed": _first_number(
+            opponent_red_zone_made,
+            _find_number(opponent_stats, "red", "zone", "touchdown"),
+        ),
     }
 
 
@@ -317,16 +394,28 @@ def _quarterback_summary(records: list[dict[str, Any]]) -> dict[str, Any] | None
                 "passing_interceptions": _find_number(values, "passing", "interception"),
                 "rushing_yards": _find_number(values, "rushing", "yards"),
                 "rushing_touchdowns": _find_number(values, "rushing", "touchdown"),
-                "sacks_taken": _find_number(values, "sacks"),
-                "games": _find_number(values, "games", "played") or _find_number(values, "appearances"),
+                "sacks_taken": _first_number(
+                    _find_number(values, "passing", "sacks"), _find_number(values, "sacks")
+                ),
+                "games": _first_number(
+                    _find_number(values, "games", "played"), _find_number(values, "appearances")
+                ),
+                "passing_yards_per_game": _find_number(values, "passing", "yards", "per", "game"),
+                "rushing_yards_per_game": _find_number(values, "rushing", "yards", "per", "game"),
             }
         )
     if not candidates:
         return None
     quarterback = max(candidates, key=lambda item: item["passing_yards"] or 0)
     games = quarterback["games"]
-    quarterback["passing_yards_per_game"] = _round(quarterback["passing_yards"] / games) if games and games > 0 else None
-    quarterback["rushing_yards_per_game"] = _round(quarterback["rushing_yards"] / games) if games and games > 0 else None
+    quarterback["passing_yards_per_game"] = _first_number(
+        quarterback["passing_yards_per_game"],
+        _round(quarterback["passing_yards"] / games) if games and games > 0 else None,
+    )
+    quarterback["rushing_yards_per_game"] = _first_number(
+        quarterback["rushing_yards_per_game"],
+        _round(quarterback["rushing_yards"] / games) if games and games > 0 else None,
+    )
     return quarterback
 
 
@@ -612,27 +701,49 @@ async def fetch_nfl_matchup_insights(home_team: str, away_team: str, season: int
             raise ApiSportsUnavailable(f"API-Sports has no completed {season} NFL games for {name} yet.")
         completed_with_ids = [(game, _game_id(game)) for game in completed]
         completed_with_ids = [(game, game_id) for game, game_id in completed_with_ids if game_id]
-        stat_payloads = await asyncio.gather(
-            *[_get("nfl", "games/statistics/teams", {"id": game_id}) for _, game_id in completed_with_ids],
+        stat_payloads, event_payloads, roster_payload = await asyncio.gather(
+            asyncio.gather(
+                *[_get("nfl", "games/statistics/teams", {"id": game_id}) for _, game_id in completed_with_ids],
+                return_exceptions=True,
+            ),
+            asyncio.gather(
+                *[_optional_get("nfl", "games/events", {"id": game_id}) for _, game_id in completed_with_ids],
+                return_exceptions=True,
+            ),
+            _optional_get("nfl", "players", {"team": team_id, "season": season}),
             return_exceptions=True,
         )
         samples: list[dict[str, float | None]] = []
         first_error: ApiSportsUnavailable | None = None
-        for (game, _), payload in zip(completed_with_ids, stat_payloads, strict=False):
+        for (game, _), payload, events in zip(completed_with_ids, stat_payloads, event_payloads, strict=False):
             if isinstance(payload, ApiSportsUnavailable):
                 first_error = first_error or payload
                 continue
             if isinstance(payload, Exception):
                 continue
-            sample = _nfl_stat_sample(game, team_id, _records(payload))
+            event_records = _records(events) if events is not None and not isinstance(events, Exception) else None
+            sample = _nfl_stat_sample(game, team_id, _records(payload), event_records)
             if sample:
                 samples.append(sample)
         if not samples:
             raise first_error or ApiSportsUnavailable(f"API-Sports returned no team box-score data for {name}.")
-        players = _records(
-            await _get("nfl", "players/statistics", {"team": team_id, "season": season})
+        quarterbacks = [
+            player for player in _records(roster_payload)
+            if str(player.get("position") or "").upper() in {"QB", "QUARTERBACK"}
+        ][:MAX_NFL_QUARTERBACKS]
+        quarterback_payloads = await asyncio.gather(
+            *[_optional_get("nfl", "players/statistics", {"id": player["id"], "season": season}) for player in quarterbacks],
+            return_exceptions=True,
         )
-        return summarize_nfl_samples(name, samples, players)
+        quarterback_records: list[dict[str, Any]] = []
+        for quarterback, payload in zip(quarterbacks, quarterback_payloads, strict=False):
+            if isinstance(payload, Exception):
+                continue
+            for record in _records(payload):
+                player = dict(record.get("player") or {})
+                player["position"] = quarterback.get("position") or "QB"
+                quarterback_records.append({**record, "player": player})
+        return summarize_nfl_samples(name, samples, quarterback_records)
 
     home_context, away_context = await asyncio.gather(team_context(home, home_team), team_context(away, away_team))
     return {

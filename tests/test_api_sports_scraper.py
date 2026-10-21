@@ -1,6 +1,6 @@
 """Tests for the API-Sports normalization layer without live provider calls."""
 
-from scrapers.api_sports_scraper import summarize_nba_team, summarize_nfl_samples
+from scrapers.api_sports_scraper import _nfl_stat_sample, summarize_nba_team, summarize_nfl_samples
 
 
 def test_nfl_samples_create_per_game_context_and_quarterback_summary() -> None:
@@ -60,6 +60,103 @@ def test_nfl_samples_create_per_game_context_and_quarterback_summary() -> None:
     assert result["offense"]["red_zone_touchdown_rate"] == 71.4
     assert result["defense"]["points_allowed_per_game"] == 19
     assert result["defense"]["red_zone_touchdown_rate_allowed"] == 57.1
+
+
+def test_nfl_box_score_shape_maps_all_displayed_team_statistics() -> None:
+    sample = _nfl_stat_sample(
+        {
+            "teams": {"home": {"id": 27}, "away": {"id": 8}},
+            "scores": {"home": {"total": 20}, "away": {"total": 16}},
+        },
+        "27",
+        [
+            {
+                "team": {"id": 27},
+                "statistics": {
+                    "passing": {"total": 232, "sacks_yards_lost": "4-27"},
+                    "rushings": {"total": 108},
+                    "red_zone": {"made_att": "2-3"},
+                    "sacks": {"total": 4},
+                    "interceptions": {"total": 1},
+                },
+            },
+            {
+                "team": {"id": 8},
+                "statistics": {
+                    "passing": {"total": 180, "sacks_yards_lost": "2-15"},
+                    "rushings": {"total": 49},
+                    "red_zone": {"made_att": "1-2"},
+                    "sacks": {"total": 2},
+                    "interceptions": {"total": 0},
+                },
+            },
+        ],
+        [
+            {"team": {"id": 27}, "type": "TD"},
+            {"team": {"id": 27}, "type": "TD"},
+            {"team": {"id": 8}, "type": "TD"},
+        ],
+    )
+
+    assert sample == {
+        "points_for": 20,
+        "points_allowed": 16,
+        "passing_yards": 232,
+        "rushing_yards": 108,
+        "sacks_allowed": 4,
+        "touchdowns": 2,
+        "red_zone_attempts": 3,
+        "red_zone_touchdowns": 2,
+        "passing_yards_allowed": 180,
+        "rushing_yards_allowed": 49,
+        "sacks": 4,
+        "interceptions": 1,
+        "red_zone_attempts_allowed": 2,
+        "red_zone_touchdowns_allowed": 1,
+    }
+
+
+def test_nfl_quarterback_summary_supports_provider_season_shape() -> None:
+    result = summarize_nfl_samples(
+        "New Orleans Saints",
+        [{"points_for": 20, "points_allowed": 16}],
+        [
+            {
+                "player": {"name": "Tyler Example", "position": "QB"},
+                "teams": [
+                    {
+                        "groups": [
+                            {
+                                "name": "Passing",
+                                "statistics": [
+                                    {"name": "yards", "value": "2,384"},
+                                    {"name": "yards per game", "value": "216.7"},
+                                    {"name": "passing touchdowns", "value": "10"},
+                                    {"name": "interceptions", "value": "6"},
+                                    {"name": "sacks", "value": "31"},
+                                ],
+                            },
+                            {
+                                "name": "Rushing",
+                                "statistics": [
+                                    {"name": "yards", "value": "186"},
+                                    {"name": "yards per game", "value": "16.9"},
+                                    {"name": "rushing touchdowns", "value": "3"},
+                                ],
+                            },
+                        ]
+                    }
+                ],
+            }
+        ],
+    )
+
+    assert result["quarterback"]["name"] == "Tyler Example"
+    assert result["quarterback"]["passing_yards"] == 2384
+    assert result["quarterback"]["passing_yards_per_game"] == 216.7
+    assert result["quarterback"]["rushing_yards"] == 186
+    assert result["quarterback"]["rushing_yards_per_game"] == 16.9
+    assert result["quarterback"]["sacks_taken"] == 31
 
 
 def test_nba_summary_keeps_unavailable_injury_data_distinct_from_no_injuries() -> None:
