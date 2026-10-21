@@ -68,6 +68,16 @@ function formatMetric(value, suffix = "") {
   return `${rounded}${suffix}`;
 }
 
+function formatSignedMetric(value) {
+  const formatted = formatMetric(value);
+  return formatted !== "—" && Number(value) > 0 ? `+${formatted}` : formatted;
+}
+
+function nbaSeasonLabel(season) {
+  const year = Number(season);
+  return Number.isInteger(year) ? `${year}–${String(year + 1).slice(-2)}` : "Prior season";
+}
+
 function average(values) {
   const usable = values.map(Number).filter(Number.isFinite);
   if (!usable.length) return null;
@@ -147,6 +157,14 @@ function createNbaTeamInsightCard(team) {
     ["Assists per game", formatMetric(team.offense.assists_per_game)],
     ["Turnovers per game", formatMetric(team.offense.turnovers_per_game)],
   ]);
+  addInsightSection(card, "Efficiency & possession", [
+    ["Free-throw percentage", formatMetric(team.offense.free_throw_percentage, "%")],
+    ["Free-throw attempts / game", formatMetric(team.offense.free_throw_attempts_per_game)],
+    ["Three-point attempts / game", formatMetric(team.offense.three_point_attempts_per_game)],
+    ["Assist / turnover", formatMetric(team.offense.assist_to_turnover_ratio)],
+    ["Offensive rebounds / game", formatMetric(team.offense.offensive_rebounds_per_game)],
+    ["Defensive rebounds / game", formatMetric(team.offense.defensive_rebounds_per_game)],
+  ]);
   addInsightSection(card, "Defense", [
     ["Points allowed per game", formatMetric(team.defense.points_allowed_per_game)],
     ["Steals per game", formatMetric(team.defense.steals_per_game)],
@@ -154,11 +172,33 @@ function createNbaTeamInsightCard(team) {
     ["Opponent field-goal percentage", formatMetric(team.defense.opponent_field_goal_percentage, "%")],
   ]);
 
+  const form = team.form || {};
+  const record = form.wins === null || form.wins === undefined || form.losses === null || form.losses === undefined
+    ? "—"
+    : `${formatMetric(form.wins)}-${formatMetric(form.losses)}`;
+  addInsightSection(card, "Completed-game form", [
+    ["Record", record],
+    ["Win percentage", formatMetric(form.win_percentage, "%")],
+    ["Last five", Array.isArray(form.recent_form) && form.recent_form.length ? form.recent_form.join(" · ") : "—"],
+    ["Point differential / game", formatSignedMetric(form.point_differential_per_game)],
+    ["Recent points / allowed", `${formatMetric(form.recent_points_per_game)} / ${formatMetric(form.recent_points_allowed_per_game)}`],
+  ]);
+
   const players = team.notable_players || [];
   addInsightSection(card, "Notable players", players.length ? players.flatMap((player) => [
     [player.name, `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`],
     ["Availability", player.availability],
   ]) : [["Status", "No player statistics were returned"]]);
+
+  const historical = team.historical_player_context;
+  const historicalPlayers = historical?.players || [];
+  addInsightSection(card, `Established players · ${nbaSeasonLabel(historical?.season)}`, historicalPlayers.length ? [
+    ["Context", "Prior-season production only; confirm the current roster and availability."],
+    ...historicalPlayers.map((player) => [
+      player.name,
+      `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
+    ]),
+  ] : [["Status", "No prior-season player records were returned"]]);
   return card;
 }
 

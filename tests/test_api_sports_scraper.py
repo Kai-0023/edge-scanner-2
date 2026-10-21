@@ -108,6 +108,10 @@ def test_nba_direct_stat_and_game_log_shape_is_normalized() -> None:
             "fga": 1000,
             "tpm": 372,
             "tpa": 1000,
+            "ftm": 164,
+            "fta": 205,
+            "offReb": 98,
+            "defReb": 342,
             "totReb": 440,
             "assists": 270,
             "turnovers": 138,
@@ -136,18 +140,45 @@ def test_nba_direct_stat_and_game_log_shape_is_normalized() -> None:
         [
             {
                 "status": {"short": 3, "long": "Finished"},
+                "date": {"start": "2026-10-01T00:00:00+00:00"},
                 "teams": {"home": {"id": 23}, "visitors": {"id": 24}},
                 "scores": {"home": {"points": 112}, "visitors": {"points": 107}},
+            },
+            {
+                "status": {"short": 3, "long": "Finished"},
+                "date": {"start": "2026-10-02T00:00:00+00:00"},
+                "teams": {"home": {"id": 24}, "visitors": {"id": 23}},
+                "scores": {"home": {"points": 110}, "visitors": {"points": 105}},
             }
         ],
         "23",
+        [
+            {
+                "player": {"firstname": "Historical", "lastname": "Star"},
+                "game": {"id": 10},
+                "pos": "G",
+                "points": 30,
+                "totReb": 6,
+                "assists": 8,
+            }
+        ],
+        2025,
     )
 
     assert result["games"] == 10
     assert result["offense"]["points_per_game"] == 112
     assert result["offense"]["field_goal_percentage"] == 48.1
     assert result["offense"]["three_point_percentage"] == 37.2
+    assert result["offense"]["free_throw_percentage"] == 80
+    assert result["offense"]["offensive_rebounds_per_game"] == 9.8
+    assert result["offense"]["assist_to_turnover_ratio"] == 2
     assert result["offense"]["rebounds_per_game"] == 44
-    assert result["defense"]["points_allowed_per_game"] == 107
+    assert result["defense"]["points_allowed_per_game"] == 108.5
+    assert result["form"]["recent_form"] == ["L", "W"]
+    assert result["form"]["wins"] == 1
+    assert result["form"]["losses"] == 1
     assert result["notable_players"][0]["name"] == "Player Example"
     assert result["notable_players"][0]["points_per_game"] == 23
+    assert result["historical_player_context"]["season"] == "2025"
+    assert result["historical_player_context"]["players"][0]["name"] == "Historical Star"
+    assert result["historical_player_context"]["players"][0]["availability"] is None
