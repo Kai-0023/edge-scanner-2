@@ -84,9 +84,9 @@ function average(values) {
   return usable.reduce((sum, value) => sum + value, 0) / usable.length;
 }
 
-function addInsightSection(container, title, metrics) {
+function addInsightSection(container, title, metrics, variant = "") {
   const section = document.createElement("section");
-  section.className = "insight-section";
+  section.className = `insight-section ${variant}`.trim();
   const heading = document.createElement("h4");
   heading.textContent = title;
   const list = document.createElement("div");
@@ -105,12 +105,22 @@ function addInsightSection(container, title, metrics) {
   container.append(section);
 }
 
-function createNflTeamInsightCard(team) {
-  const card = document.createElement("article");
-  card.className = "insight-team";
+function createTeamHeader(team, side) {
+  const header = document.createElement("header");
+  header.className = "insight-team-header";
+  const label = document.createElement("span");
+  label.className = "insight-team-role";
+  label.textContent = side;
   const heading = document.createElement("h3");
   heading.textContent = team.team;
-  card.append(heading);
+  header.append(label, heading);
+  return header;
+}
+
+function createNflTeamInsightCard(team, side) {
+  const card = document.createElement("article");
+  card.className = "insight-team";
+  card.append(createTeamHeader(team, side));
 
   const qb = team.quarterback;
   addInsightSection(card, "Quarterback", qb ? [
@@ -120,7 +130,7 @@ function createNflTeamInsightCard(team) {
     ["Rushing yards", `${formatMetric(qb.rushing_yards)} · ${formatMetric(qb.rushing_yards_per_game, " / game")}`],
     ["Rushing TD", formatMetric(qb.rushing_touchdowns)],
     ["Sacks taken", formatMetric(qb.sacks_taken)],
-  ] : [["Status", "No qualifying quarterback record returned"]]);
+  ] : [["Status", "No qualifying quarterback record returned"]], "quarterback-section");
 
   addInsightSection(card, "Offense", [
     ["Points per game", formatMetric(team.offense.points_per_game)],
@@ -141,12 +151,10 @@ function createNflTeamInsightCard(team) {
   return card;
 }
 
-function createNbaTeamInsightCard(team) {
+function createNbaTeamInsightCard(team, side) {
   const card = document.createElement("article");
   card.className = "insight-team";
-  const heading = document.createElement("h3");
-  heading.textContent = team.team;
-  card.append(heading);
+  card.append(createTeamHeader(team, side));
 
   addInsightSection(card, "Team averages", [
     ["Games", formatMetric(team.games)],
@@ -188,7 +196,7 @@ function createNbaTeamInsightCard(team) {
   addInsightSection(card, "Notable players", players.length ? players.flatMap((player) => [
     [player.name, `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`],
     ["Availability", player.availability],
-  ]) : [["Status", "No player statistics were returned"]]);
+  ]) : [["Status", "No player statistics were returned"]], "player-section");
 
   const historical = team.historical_player_context;
   const historicalPlayers = historical?.players || [];
@@ -198,7 +206,7 @@ function createNbaTeamInsightCard(team) {
       player.name,
       `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
     ]),
-  ] : [["Status", "No prior-season player records were returned"]]);
+  ] : [["Status", "No prior-season player records were returned"]], "player-section historical-section");
   return card;
 }
 
@@ -244,24 +252,35 @@ function seasonForGame(game) {
   return String(date.getUTCFullYear() - (startsPreviousCalendarYear ? 1 : 0));
 }
 
-function displayNflInsights(data, game) {
-  insightResult.replaceChildren();
-  const grid = document.createElement("div");
-  grid.className = "insight-team-grid";
-  grid.append(createNflTeamInsightCard(data.home), createNflTeamInsightCard(data.away));
+function createMatchupSummary(data, game) {
   const summary = document.createElement("article");
   summary.className = "insight-summary";
   const heading = document.createElement("h3");
   heading.textContent = "Transparent matchup context";
+  const scorecard = document.createElement("div");
+  scorecard.className = "insight-scorecard";
+  scorecard.innerHTML = `
+    <div><span>Home</span><strong>${escapeHtml(data.home.team)}</strong><b>${formatMetric(data.matchup_summary.estimated_home_points)}</b></div>
+    <div class="scorecard-total"><span>Scoring blend</span><strong>${formatMetric(data.matchup_summary.estimated_total)} total</strong><i>Season-to-date</i></div>
+    <div><span>Away</span><strong>${escapeHtml(data.away.team)}</strong><b>${formatMetric(data.matchup_summary.estimated_away_points)}</b></div>`;
   const estimate = document.createElement("p");
-  estimate.textContent = `Season-to-date scoring blend: ${data.home.team} ${formatMetric(data.matchup_summary.estimated_home_points)} — ${data.away.team} ${formatMetric(data.matchup_summary.estimated_away_points)} (total ${formatMetric(data.matchup_summary.estimated_total)}).`;
+  estimate.textContent = `Scoring blend: ${data.home.team} ${formatMetric(data.matchup_summary.estimated_home_points)} — ${data.away.team} ${formatMetric(data.matchup_summary.estimated_away_points)}.`;
   const method = document.createElement("p");
   method.textContent = data.matchup_summary.method;
   const market = document.createElement("p");
   market.textContent = marketComparison(game, data.matchup_summary);
   const disclaimer = document.createElement("p");
   disclaimer.textContent = data.matchup_summary.disclaimer;
-  summary.append(heading, estimate, method, market, disclaimer);
+  summary.append(heading, scorecard, estimate, method, market, disclaimer);
+  return summary;
+}
+
+function displayNflInsights(data, game) {
+  insightResult.replaceChildren();
+  const grid = document.createElement("div");
+  grid.className = "insight-team-grid";
+  grid.append(createNflTeamInsightCard(data.home, "Home team"), createNflTeamInsightCard(data.away, "Away team"));
+  const summary = createMatchupSummary(data, game);
   insightResult.append(grid, summary);
 }
 
@@ -269,20 +288,8 @@ function displayNbaInsights(data, game) {
   insightResult.replaceChildren();
   const grid = document.createElement("div");
   grid.className = "insight-team-grid";
-  grid.append(createNbaTeamInsightCard(data.home), createNbaTeamInsightCard(data.away));
-  const summary = document.createElement("article");
-  summary.className = "insight-summary";
-  const heading = document.createElement("h3");
-  heading.textContent = "Transparent matchup context";
-  const estimate = document.createElement("p");
-  estimate.textContent = `Season-to-date scoring blend: ${data.home.team} ${formatMetric(data.matchup_summary.estimated_home_points)} — ${data.away.team} ${formatMetric(data.matchup_summary.estimated_away_points)} (total ${formatMetric(data.matchup_summary.estimated_total)}).`;
-  const method = document.createElement("p");
-  method.textContent = data.matchup_summary.method;
-  const market = document.createElement("p");
-  market.textContent = marketComparison(game, data.matchup_summary);
-  const disclaimer = document.createElement("p");
-  disclaimer.textContent = data.matchup_summary.disclaimer;
-  summary.append(heading, estimate, method, market, disclaimer);
+  grid.append(createNbaTeamInsightCard(data.home, "Home team"), createNbaTeamInsightCard(data.away, "Away team"));
+  const summary = createMatchupSummary(data, game);
   insightResult.append(grid, summary);
 }
 
