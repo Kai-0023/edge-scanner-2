@@ -231,7 +231,17 @@ def _game_status(game: dict[str, Any]) -> str:
 
 
 def _completed_game(game: dict[str, Any]) -> bool:
-    return _game_status(game) in {"FT", "AOT", "FINISHED", "FINAL"}
+    short = str(
+        _nested(game, "game", "status", "short")
+        or _nested(game, "status", "short")
+        or ""
+    ).upper()
+    long = str(
+        _nested(game, "game", "status", "long")
+        or _nested(game, "status", "long")
+        or ""
+    ).upper()
+    return short in {"FT", "AOT", "FINAL", "3"} or long in {"FINISHED", "FINAL"}
 
 
 def _team_id(record: dict[str, Any]) -> str | None:
@@ -242,7 +252,9 @@ def _team_id(record: dict[str, Any]) -> str | None:
 def _score_for_team(game: dict[str, Any], team_id: str) -> tuple[float | None, float | None]:
     teams = game.get("teams") if isinstance(game.get("teams"), dict) else {}
     scores = game.get("scores") if isinstance(game.get("scores"), dict) else {}
-    for side, opponent_side in (("home", "away"), ("away", "home")):
+    for side, opponent_side in (("home", "away"), ("away", "home"), ("home", "visitors"), ("visitors", "home")):
+        if opponent_side not in teams or opponent_side not in scores:
+            continue
         current_team = teams.get(side) if isinstance(teams.get(side), dict) else {}
         if str(current_team.get("id")) != team_id:
             continue
@@ -279,9 +291,14 @@ def _nfl_stat_sample(game: dict[str, Any], team_id: str, records: list[dict[str,
 
 
 def _player_name(record: dict[str, Any]) -> str:
-    return str(
-        _text(record, ("player", "name"), ("name",), ("player", "display_name")) or "Player unavailable"
+    name = _text(record, ("player", "name"), ("name",), ("player", "display_name"))
+    if name:
+        return name
+    player = record.get("player") if isinstance(record.get("player"), dict) else {}
+    first_last = " ".join(
+        str(part).strip() for part in [player.get("firstname"), player.get("lastname")] if part
     )
+    return first_last or "Player unavailable"
 
 
 def _quarterback_summary(records: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -369,6 +386,43 @@ def _notable_nba_players(
     records: list[dict[str, Any]], injury_records: list[dict[str, Any]] | None
 ) -> list[dict[str, Any]]:
     injuries = _injury_map(injury_records)
+    game_logs = [record for record in records if isinstance(record.get("game"), dict) and "points" in record]
+    if game_logs:
+        aggregates: dict[str, dict[str, Any]] = {}
+        for record in game_logs:
+            name = _player_name(record)
+            player = aggregates.setdefault(
+                name,
+                {
+                    "name": name,
+                    "position": str(record.get("pos") or "—"),
+                    "games": 0,
+                    "points": 0.0,
+                    "rebounds": 0.0,
+                    "assists": 0.0,
+                },
+            )
+            player["games"] += 1
+            player["points"] += _number(record.get("points")) or 0
+            player["rebounds"] += _number(record.get("totReb")) or 0
+            player["assists"] += _number(record.get("assists")) or 0
+        players = [
+            {
+                "name": player["name"],
+                "position": player["position"],
+                "points_per_game": _round(player["points"] / player["games"]),
+                "rebounds_per_game": _round(player["rebounds"] / player["games"]),
+                "assists_per_game": _round(player["assists"] / player["games"]),
+                "availability": injuries.get(
+                    _normalize(player["name"]),
+                    "No current injury report returned" if injury_records is not None else "Availability data unavailable",
+                ),
+            }
+            for player in aggregates.values()
+            if player["games"]
+        ]
+        return sorted(players, key=lambda player: player["points_per_game"] or 0, reverse=True)[:3]
+
     players: list[dict[str, Any]] = []
     for record in records:
         values = _flatten_numbers(record)
@@ -399,28 +453,66 @@ def summarize_nba_team(
     statistics: dict[str, Any],
     player_records: list[dict[str, Any]],
     injury_records: list[dict[str, Any]] | None,
+    game_records: list[dict[str, Any]] | None = None,
+    team_id: str | None = None,
 ) -> dict[str, Any]:
     """Normalize API-NBA season fields without inventing absent values."""
 
     values = _flatten_numbers(statistics)
     games = _find_number(values, "games", "played", "all") or _find_number(values, "games", "played")
-    points_for = _stat_per_game(values, games, "points", "for")
-    points_allowed = _stat_per_game(values, games, "points", "against")
+    direct_game_count = _number(statistics.get("games")) if isinstance(statistics, dict) else None
+    if direct_game_count is not None:
+        games = direct_game_count
+        points_total = _number(statistics.get("points"))
+        field_goals_made = _number(statistics.get("fgm"))
+        field_goals_attempted = _number(statistics.get("fga"))
+        three_pointers_made = _number(statistics.get("tpm"))
+        three_pointers_attempted = _number(statistics.get("tpa"))
+        rebounds_total = _number(statistics.get("totReb"))
+        assists_total = _number(statistics.get("assists"))
+        turnovers_total = _number(statistics.get("turnovers"))
+        steals_total = _number(statistics.get("steals"))
+        blocks_total = _number(statistics.get("blocks"))
+        points_for = _round(points_total / games) if points_total is not None and games else None
+        field_goal_percentage = _percentage(field_goals_made, field_goals_attempted) or _number(statistics.get("fgp"))
+        three_point_percentage = _percentage(three_pointers_made, three_pointers_attempted) or _number(statistics.get("tpp"))
+        rebounds_per_game = _round(rebounds_total / games) if rebounds_total is not None and games else None
+        assists_per_game = _round(assists_total / games) if assists_total is not None and games else None
+        turnovers_per_game = _round(turnovers_total / games) if turnovers_total is not None and games else None
+        steals_per_game = _round(steals_total / games) if steals_total is not None and games else None
+        blocks_per_game = _round(blocks_total / games) if blocks_total is not None and games else None
+    else:
+        points_for = _stat_per_game(values, games, "points", "for")
+        field_goal_percentage = _find_number(values, "field", "goal", "percentage")
+        three_point_percentage = _find_number(values, "three", "point", "percentage")
+        rebounds_per_game = _stat_per_game(values, games, "rebounds")
+        assists_per_game = _stat_per_game(values, games, "assists")
+        turnovers_per_game = _stat_per_game(values, games, "turnovers")
+        steals_per_game = _stat_per_game(values, games, "steals")
+        blocks_per_game = _stat_per_game(values, games, "blocks")
+
+    completed_scores = [
+        _score_for_team(game, team_id)
+        for game in game_records or []
+        if team_id and _completed_game(game)
+    ]
+    scored_points = [opponent for _, opponent in completed_scores if opponent is not None]
+    points_allowed = _average(scored_points) or _stat_per_game(values, games, "points", "against")
     return {
         "team": team_name,
         "games": games,
         "offense": {
             "points_per_game": points_for,
-            "field_goal_percentage": _find_number(values, "field", "goal", "percentage"),
-            "three_point_percentage": _find_number(values, "three", "point", "percentage"),
-            "rebounds_per_game": _stat_per_game(values, games, "rebounds"),
-            "assists_per_game": _stat_per_game(values, games, "assists"),
-            "turnovers_per_game": _stat_per_game(values, games, "turnovers"),
+            "field_goal_percentage": field_goal_percentage,
+            "three_point_percentage": three_point_percentage,
+            "rebounds_per_game": rebounds_per_game,
+            "assists_per_game": assists_per_game,
+            "turnovers_per_game": turnovers_per_game,
         },
         "defense": {
             "points_allowed_per_game": points_allowed,
-            "steals_per_game": _stat_per_game(values, games, "steals"),
-            "blocks_per_game": _stat_per_game(values, games, "blocks"),
+            "steals_per_game": steals_per_game,
+            "blocks_per_game": blocks_per_game,
             "opponent_field_goal_percentage": _find_number(values, "opponent", "field", "goal", "percentage"),
         },
         "notable_players": _notable_nba_players(player_records, injury_records),
@@ -493,15 +585,23 @@ async def fetch_nba_matchup_insights(home_team: str, away_team: str, season: int
 
     async def team_context(team: dict[str, Any], name: str) -> dict[str, Any]:
         team_id = str(team["id"])
-        stats, players, injuries = await asyncio.gather(
+        stats, players, injuries, games = await asyncio.gather(
             _get("nba", "teams/statistics", {"id": team_id, "season": season}),
             _optional_get("nba", "players/statistics", {"team": team_id, "season": season}),
             _optional_get("nba", "injuries", {"team": team_id, "season": season}),
+            _optional_get("nba", "games", {"team": team_id, "season": season}),
         )
         records = _records(stats)
         if not records:
             raise ApiSportsUnavailable(f"API-Sports has no {season} NBA team statistics for {name} yet.")
-        return summarize_nba_team(name, records[0], _records(players), _records(injuries))
+        return summarize_nba_team(
+            name,
+            records[0],
+            _records(players),
+            _records(injuries),
+            _records(games),
+            team_id,
+        )
 
     home_context, away_context = await asyncio.gather(team_context(home, home_team), team_context(away, away_team))
     return {

@@ -96,3 +96,58 @@ def test_nba_summary_keeps_unavailable_injury_data_distinct_from_no_injuries() -
     assert result["defense"]["points_allowed_per_game"] == 108.2
     assert result["notable_players"][0]["name"] == "Player Example"
     assert result["notable_players"][0]["availability"] == "Availability data unavailable"
+
+
+def test_nba_direct_stat_and_game_log_shape_is_normalized() -> None:
+    result = summarize_nba_team(
+        "New Orleans Pelicans",
+        {
+            "games": 10,
+            "points": 1120,
+            "fgm": 481,
+            "fga": 1000,
+            "tpm": 372,
+            "tpa": 1000,
+            "totReb": 440,
+            "assists": 270,
+            "turnovers": 138,
+            "steals": 76,
+            "blocks": 51,
+        },
+        [
+            {
+                "player": {"firstname": "Player", "lastname": "Example"},
+                "game": {"id": 1},
+                "pos": "F",
+                "points": 25,
+                "totReb": 7,
+                "assists": 6,
+            },
+            {
+                "player": {"firstname": "Player", "lastname": "Example"},
+                "game": {"id": 2},
+                "pos": "F",
+                "points": 21,
+                "totReb": 5,
+                "assists": 4,
+            },
+        ],
+        [],
+        [
+            {
+                "status": {"short": 3, "long": "Finished"},
+                "teams": {"home": {"id": 23}, "visitors": {"id": 24}},
+                "scores": {"home": {"points": 112}, "visitors": {"points": 107}},
+            }
+        ],
+        "23",
+    )
+
+    assert result["games"] == 10
+    assert result["offense"]["points_per_game"] == 112
+    assert result["offense"]["field_goal_percentage"] == 48.1
+    assert result["offense"]["three_point_percentage"] == 37.2
+    assert result["offense"]["rebounds_per_game"] == 44
+    assert result["defense"]["points_allowed_per_game"] == 107
+    assert result["notable_players"][0]["name"] == "Player Example"
+    assert result["notable_players"][0]["points_per_game"] == 23
