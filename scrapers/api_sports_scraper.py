@@ -674,17 +674,35 @@ def summarize_nba_team(
     points_allowed = _average(scored_points) or _stat_per_game(values, games, "points", "against")
     current_roster_names = _roster_player_names(current_roster_records)
     historical_context = None
+    historical_players: list[dict[str, Any]] = []
     if historical_season is not None and historical_player_records is not None:
+        historical_players = _notable_nba_players(
+            historical_player_records,
+            None,
+            historical=True,
+            allowed_player_names=current_roster_names,
+        ) if current_roster_names is not None else []
         historical_context = {
             "season": str(historical_season),
-            "players": _notable_nba_players(
-                historical_player_records,
-                None,
-                historical=True,
-                allowed_player_names=current_roster_names,
-            ) if current_roster_names is not None else [],
+            "players": historical_players,
             "roster_verified": current_roster_names is not None,
         }
+
+    current_players = _notable_nba_players(player_records, injury_records)
+    current_injuries = _injury_map(injury_records)
+    fallback_players = [
+        {
+            **player,
+            "availability": current_injuries.get(_normalize(player["name"])),
+        }
+        for player in historical_players
+    ]
+    notable_players = current_players or fallback_players
+    notable_players_source = (
+        "current_season" if current_players
+        else "previous_season_roster" if fallback_players
+        else "unavailable"
+    )
 
     return {
         "team": team_name,
@@ -710,7 +728,8 @@ def summarize_nba_team(
             "opponent_field_goal_percentage": _find_number(values, "opponent", "field", "goal", "percentage"),
         },
         "form": _nba_form(game_records, team_id),
-        "notable_players": _notable_nba_players(player_records, injury_records),
+        "notable_players": notable_players,
+        "notable_players_source": notable_players_source,
         "historical_player_context": historical_context,
     }
 

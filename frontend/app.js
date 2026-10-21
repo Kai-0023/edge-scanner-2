@@ -245,14 +245,23 @@ function createNbaTeamInsightCard(team, side) {
     ["Recent points / allowed", `${formatMetric(form.recent_points_per_game)} / ${formatMetric(form.recent_points_allowed_per_game)}`],
   ]);
 
-  const players = team.notable_players || [];
-  addInsightSection(card, "Notable players", players.length
-    ? playerMetrics(players)
-    : [["Status", "No player statistics were returned"]], "player-section");
-
   const historical = team.historical_player_context;
   const historicalPlayers = historical?.players || [];
-  if (historical) {
+  const players = team.notable_players || [];
+  const usesRosterFallback = team.notable_players_source === "previous_season_roster";
+  const playerMetricsWithContext = usesRosterFallback
+    ? [["Data context", `Current roster confirmed; ${nbaSeasonLabel(historical?.season)} player production is shown because live player statistics are unavailable.`], ...playerMetrics(players)]
+    : players.length
+      ? playerMetrics(players)
+      : [["Status", "No player statistics were returned"]];
+  addInsightSection(
+    card,
+    usesRosterFallback ? `Players to watch · ${nbaSeasonLabel(historical?.season)} context` : "Notable players",
+    playerMetricsWithContext,
+    "player-section",
+  );
+
+  if (historical && !usesRosterFallback) {
     const historicalMetrics = !historical.roster_verified
       ? [["Status", "Past-season player stats are hidden because the current roster could not be confirmed."]]
       : historicalPlayers.length
