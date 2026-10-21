@@ -167,7 +167,7 @@ h1 { font-size: clamp(2.5rem, 7vw, 4.6rem); line-height: .95; margin: 10px 0 14p
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(135px, .45fr) minmax(230px, 1fr) auto;
+  grid-template-columns: minmax(115px, .4fr) minmax(220px, 1fr) minmax(190px, .7fr) auto;
   align-items: end;
   gap: 14px;
   padding: 20px;
@@ -177,6 +177,8 @@ h1 { font-size: clamp(2.5rem, 7vw, 4.6rem); line-height: .95; margin: 10px 0 14p
 }
 .controls label { color: #dce5f8; }
 .controls button { min-width: 148px; }
+.jurisdiction-status { margin: 14px 0 0; padding: 12px 14px; background: #17233e; border: 1px solid #3a547d; border-left: 3px solid #e1b764; border-radius: 10px; color: #d7e2f7; font-size: .86rem; line-height: 1.45; }
+.jurisdiction-status.selected { border-left-color: #72e4bf; }
 input, select { min-height: 44px; border-color: #405987; transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; }
 input:hover, select:hover { border-color: #6682b4; }
 input:focus, select:focus { border-color: #72e4bf; box-shadow: 0 0 0 3px rgba(114, 228, 191, .14); outline: 0; }
@@ -225,7 +227,13 @@ li { padding: 7px 0; font-size: .86rem; }
 .insight-metric strong { font-size: 1rem; }
 .player-section .insight-metric { padding: 11px 12px; background: #131f37; }
 .insight-summary { background: linear-gradient(145deg, #12203a, #0d1729); border-color: #3b5d8b; }
+.jurisdiction-insight-note { padding: 10px 12px; background: rgba(225, 183, 100, .1); border: 1px solid rgba(225, 183, 100, .35); border-radius: 9px; color: #f1d9a4 !important; }
 .inline-status { padding: 10px 12px; background: #10192c; border: 1px solid #273a5c; border-radius: 9px; min-height: 0; }
+
+@media (max-width: 980px) {
+  .controls { grid-template-columns: minmax(145px, .5fr) minmax(220px, 1fr); }
+  .controls button { grid-column: 1 / -1; }
+}
 
 @media (max-width: 760px) {
   .page-shell { padding: 22px 16px 52px; }

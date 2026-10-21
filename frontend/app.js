@@ -1,5 +1,7 @@
 const leagueInput = document.querySelector("#league");
 const bookmakersInput = document.querySelector("#bookmakers");
+const jurisdictionInput = document.querySelector("#jurisdiction");
+const jurisdictionStatus = document.querySelector("#jurisdiction-status");
 const refreshButton = document.querySelector("#refresh");
 const status = document.querySelector("#status");
 const summary = document.querySelector("#summary");
@@ -35,6 +37,7 @@ let selectedImageUrl = null;
 let trackingSource = "manual";
 let selectedGameTime = "";
 const upcomingGames = new Map();
+let displayedSportsbooks = [];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -48,6 +51,30 @@ function escapeHtml(value) {
 function setInlineStatus(element, message, isError = false) {
   element.textContent = message;
   element.classList.toggle("error", isError);
+}
+
+function readableSportsbooks() {
+  const configured = bookmakersInput.value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => name.replaceAll("_", " "));
+  const names = displayedSportsbooks.length ? displayedSportsbooks : configured;
+  return names.length ? names.join(", ") : "the selected sportsbook providers";
+}
+
+function jurisdictionMessage() {
+  const books = readableSportsbooks();
+  const selectedOption = jurisdictionInput.options[jurisdictionInput.selectedIndex];
+  if (!jurisdictionInput.value) {
+    return `Research view only. Choose a U.S. state or D.C. before treating lines from ${books} as actionable. The app never uses your device location.`;
+  }
+  return `${selectedOption.text} selected. Lines shown from ${books} are research context—not proof that a provider is licensed or available there. Confirm each book's current eligibility, age rules, and account requirements before placing any wager.`;
+}
+
+function updateJurisdictionStatus() {
+  jurisdictionStatus.textContent = jurisdictionMessage();
+  jurisdictionStatus.classList.toggle("selected", Boolean(jurisdictionInput.value));
 }
 
 function setActiveTab(tab) {
@@ -269,9 +296,12 @@ function createMatchupSummary(data, game) {
   method.textContent = data.matchup_summary.method;
   const market = document.createElement("p");
   market.textContent = marketComparison(game, data.matchup_summary);
+  const jurisdiction = document.createElement("p");
+  jurisdiction.className = "jurisdiction-insight-note";
+  jurisdiction.textContent = jurisdictionMessage();
   const disclaimer = document.createElement("p");
   disclaimer.textContent = data.matchup_summary.disclaimer;
-  summary.append(heading, scorecard, estimate, method, market, disclaimer);
+  summary.append(heading, scorecard, estimate, method, market, jurisdiction, disclaimer);
   return summary;
 }
 
@@ -527,6 +557,10 @@ async function loadOdds() {
       <span><strong>${data.event_count}</strong> events</span>
       <span><strong>${data.usage.requests_remaining ?? "—"}</strong> credits remaining</span>
       <span>Markets: ${data.markets.join(", ")}</span>`;
+    displayedSportsbooks = [...new Set(
+      data.events.flatMap((event) => (event.bookmakers || []).map((bookmaker) => bookmaker.title)).filter(Boolean),
+    )];
+    updateJurisdictionStatus();
     populateUpcomingGames(data.events, league);
     eventsContainer.innerHTML = data.events.map((event) => displayEvent(event, league)).join("");
     insightMatchup.textContent = "Choose a matchup";
@@ -543,6 +577,7 @@ async function loadOdds() {
 }
 
 refreshButton.addEventListener("click", loadOdds);
+jurisdictionInput.addEventListener("change", updateJurisdictionStatus);
 
 tabButtons.forEach((button) => {
   button.addEventListener("click", () => setActiveTab(button.dataset.tab));
@@ -715,6 +750,7 @@ trackingForm.addEventListener("submit", async (event) => {
 });
 
 loadOdds();
+updateJurisdictionStatus();
 resetUpcomingGames();
 loadVenueTeams();
 loadTrackingEntries();
