@@ -44,13 +44,23 @@ function setInlineStatus(element, message, isError = false) {
   element.classList.toggle("error", isError);
 }
 
-function displayVenueContext(context) {
+function formatGameTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function displayVenueContext(context, scheduledGame = null, requestedGameTime = "") {
   venueResult.replaceChildren();
   const { venue } = context;
   const values = [
     `${context.home_team} home venue: ${venue.venue}`,
     venue.city,
   ];
+  if (scheduledGame) {
+    values.unshift(`Scheduled game: ${scheduledGame.away_team} at ${scheduledGame.home_team} — ${formatGameTime(scheduledGame.commence_time)}`);
+  } else if (requestedGameTime) {
+    values.unshift(`Game time selected for venue context: ${formatGameTime(requestedGameTime)}`);
+  }
   if (context.weather) {
     const conditions = context.weather.conditions;
     values.push(
@@ -96,6 +106,22 @@ function populateUpcomingGames(events, league) {
   if (!futureEvents.length) resetUpcomingGames("No upcoming games were returned by the odds provider");
 }
 
+function findUpcomingHomeGame(homeTeam = venueHomeTeam.value, league = venueLeague.value) {
+  return [...upcomingGames.entries()]
+    .filter(([, game]) => game.league === league && game.home_team === homeTeam)
+    .sort(([, first], [, second]) => new Date(first.commence_time) - new Date(second.commence_time))[0] || null;
+}
+
+function matchHomeTeamToUpcomingGame() {
+  const match = findUpcomingHomeGame();
+  if (!match) return null;
+  const [key, game] = match;
+  upcomingGame.value = key;
+  selectedGameTime = game.commence_time;
+  venueGameTime.value = "";
+  return game;
+}
+
 async function loadVenueTeams(preferredTeam = "") {
   const league = venueLeague.value;
   venueHomeTeam.disabled = true;
@@ -128,21 +154,25 @@ async function showVenueContext() {
     setInlineStatus(venueStatus, "Choose a home team first.", true);
     return;
   }
+  const selectedUpcomingGame = upcomingGames.get(upcomingGame.value);
+  const matchedGame = selectedUpcomingGame || (!selectedGameTime && !venueGameTime.value ? matchHomeTeamToUpcomingGame() : null);
+  const gameTime = selectedGameTime || venueGameTime.value;
   const submitButton = venueForm.querySelector("button");
   submitButton.disabled = true;
   venueResult.replaceChildren();
   setInlineStatus(venueStatus, `Resolving ${homeTeam}'s home venue…`);
   try {
     const query = new URLSearchParams({ home_team: homeTeam });
-    const gameTime = selectedGameTime || venueGameTime.value;
     if (gameTime) query.set("game_time_local", gameTime);
     const response = await fetch(`/venue-context/${venueLeague.value}?${query}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Unable to resolve this home venue.");
-    displayVenueContext(data);
+    displayVenueContext(data, matchedGame, gameTime);
     setInlineStatus(
       venueStatus,
-      data.weather?.model_note || data.weather_unavailable || "Venue was determined from the home team only; away-team and device locations were not used.",
+      data.weather?.model_note || data.weather_unavailable || (matchedGame
+        ? `Using the official scheduled date: ${formatGameTime(matchedGame.commence_time)}.`
+        : "No matching upcoming home game is loaded, so no date or weather was guessed."),
     );
   } catch (error) {
     setInlineStatus(venueStatus, error.message, true);
@@ -242,9 +272,15 @@ leagueInput.addEventListener("change", () => {
   loadVenueTeams();
 });
 
-venueHomeTeam.addEventListener("change", () => {
+venueHomeTeam.addEventListener("change", async () => {
   selectedGameTime = "";
   upcomingGame.value = "";
+  venueGameTime.value = "";
+  const matchedGame = matchHomeTeamToUpcomingGame();
+  await showVenueContext();
+  if (matchedGame) {
+    setInlineStatus(venueStatus, `Matched ${matchedGame.away_team} at ${matchedGame.home_team} on ${formatGameTime(matchedGame.commence_time)}. ${venueStatus.textContent}`);
+  }
 });
 
 venueGameTime.addEventListener("input", () => {

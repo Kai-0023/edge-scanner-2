@@ -181,7 +181,7 @@ async def venue_context(
     league: str,
     home_team: str = Query(..., min_length=2, description="The designated home team from the matchup or bet."),
     away_team: str | None = Query(default=None, description="Optional display-only away team. It never determines the venue."),
-    game_time_local: str | None = Query(default=None, description="Optional venue-local game time. Enables NFL venue weather."),
+    game_time_local: str | None = Query(default=None, description="Optional official game start time. Enables NFL venue weather."),
 ) -> dict[str, Any]:
     """Resolve a matchup's location from the home team and optionally add NFL weather."""
 

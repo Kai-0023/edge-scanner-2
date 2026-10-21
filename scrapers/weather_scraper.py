@@ -1,8 +1,8 @@
 """Open-Meteo forecast lookup for public game-venue coordinates.
 
-Weather is returned as context for the NFL baseline. The app never changes a
-projection automatically; the person using the app must still decide whether a
-weather adjustment belongs in the transparent model inputs.
+Weather is returned as NFL venue context only. The app never changes a
+projection automatically; the person using the app must decide whether it is
+relevant.
 """
 
 from __future__ import annotations
