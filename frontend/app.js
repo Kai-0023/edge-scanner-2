@@ -2,6 +2,8 @@ const leagueInput = document.querySelector("#league");
 const bookmakersInput = document.querySelector("#bookmakers");
 const jurisdictionInput = document.querySelector("#jurisdiction");
 const jurisdictionStatus = document.querySelector("#jurisdiction-status");
+const useDeviceLocationButton = document.querySelector("#use-device-location");
+const deviceLocationStatus = document.querySelector("#device-location-status");
 const refreshButton = document.querySelector("#refresh");
 const status = document.querySelector("#status");
 const summary = document.querySelector("#summary");
@@ -38,6 +40,7 @@ let trackingSource = "manual";
 let selectedGameTime = "";
 const upcomingGames = new Map();
 let displayedSportsbooks = [];
+let jurisdictionSource = "manual";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -67,14 +70,71 @@ function jurisdictionMessage() {
   const books = readableSportsbooks();
   const selectedOption = jurisdictionInput.options[jurisdictionInput.selectedIndex];
   if (!jurisdictionInput.value) {
-    return `Research view only. Choose a U.S. state or D.C. before treating lines from ${books} as actionable. The app never uses your device location.`;
+    return `Research view only. Choose a U.S. state or D.C., or use device location to suggest one, before treating lines from ${books} as actionable.`;
   }
-  return `${selectedOption.text} selected. Lines shown from ${books} are research context—not proof that a provider is licensed or available there. Confirm each book's current eligibility, age rules, and account requirements before placing any wager.`;
+  const source = jurisdictionSource === "device" ? "was suggested from device location" : "selected";
+  return `${selectedOption.text} ${source}. Lines shown from ${books} are research context—not proof that a provider is licensed or available there. Confirm each book's current eligibility, age rules, and account requirements before placing any wager.`;
 }
 
 function updateJurisdictionStatus() {
   jurisdictionStatus.textContent = jurisdictionMessage();
   jurisdictionStatus.classList.toggle("selected", Boolean(jurisdictionInput.value));
+}
+
+function setDeviceLocationStatus(message, isError = false) {
+  deviceLocationStatus.textContent = message;
+  deviceLocationStatus.classList.toggle("error", isError);
+}
+
+function locationErrorMessage(error) {
+  if (error?.code === error.PERMISSION_DENIED) return "Device location was not shared. You can choose any state manually.";
+  if (error?.code === error.TIMEOUT) return "Device location took too long. Try again or choose a state manually.";
+  return "Device location could not be determined. Choose a state manually.";
+}
+
+async function suggestJurisdictionFromDevice(position) {
+  const response = await fetch("/jurisdiction/device", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      latitude: Number(position.coords.latitude.toFixed(3)),
+      longitude: Number(position.coords.longitude.toFixed(3)),
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "Unable to suggest a state from device location.");
+  if (!jurisdictionInput.querySelector(`option[value="${data.code}"]`)) {
+    throw new Error("The suggested state is not available in the selector. Choose a state manually.");
+  }
+  jurisdictionInput.value = data.code;
+  jurisdictionSource = "device";
+  updateJurisdictionStatus();
+  setDeviceLocationStatus(`${data.name} was suggested from your device location. You can still choose a different state manually.`);
+}
+
+function useDeviceLocation() {
+  if (!navigator.geolocation) {
+    setDeviceLocationStatus("This browser cannot provide device location. Choose a state manually.", true);
+    return;
+  }
+  useDeviceLocationButton.disabled = true;
+  setDeviceLocationStatus("Requesting browser permission for a one-time state suggestion…");
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      try {
+        await suggestJurisdictionFromDevice(position);
+      } catch (error) {
+        setDeviceLocationStatus(error.message, true);
+      } finally {
+        useDeviceLocationButton.disabled = false;
+      }
+    },
+    (error) => {
+      setDeviceLocationStatus(locationErrorMessage(error), true);
+      useDeviceLocationButton.disabled = false;
+    },
+    { enableHighAccuracy: false, maximumAge: 300000, timeout: 10000 },
+  );
 }
 
 function setActiveTab(tab) {
@@ -618,7 +678,11 @@ async function loadOdds() {
 }
 
 refreshButton.addEventListener("click", loadOdds);
-jurisdictionInput.addEventListener("change", updateJurisdictionStatus);
+jurisdictionInput.addEventListener("change", () => {
+  jurisdictionSource = "manual";
+  updateJurisdictionStatus();
+});
+useDeviceLocationButton.addEventListener("click", useDeviceLocation);
 
 tabButtons.forEach((button) => {
   button.addEventListener("click", () => setActiveTab(button.dataset.tab));

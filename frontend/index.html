@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Edge Scanner 2</title>
-    <link rel="stylesheet" href="/static/styles.css?v=insight-layout-20261021" />
+    <link rel="stylesheet" href="/static/styles.css?v=device-jurisdiction-20261022" />
   </head>
   <body>
     <main class="page-shell">
@@ -40,11 +40,16 @@
             <option value="">Choose a U.S. state or D.C.</option>
             <option value="AL">Alabama</option><option value="AK">Alaska</option><option value="AZ">Arizona</option><option value="AR">Arkansas</option><option value="CA">California</option><option value="CO">Colorado</option><option value="CT">Connecticut</option><option value="DC">District of Columbia</option><option value="DE">Delaware</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="HI">Hawaii</option><option value="ID">Idaho</option><option value="IL">Illinois</option><option value="IN">Indiana</option><option value="IA">Iowa</option><option value="KS">Kansas</option><option value="KY">Kentucky</option><option value="LA">Louisiana</option><option value="ME">Maine</option><option value="MD">Maryland</option><option value="MA">Massachusetts</option><option value="MI">Michigan</option><option value="MN">Minnesota</option><option value="MS">Mississippi</option><option value="MO">Missouri</option><option value="MT">Montana</option><option value="NE">Nebraska</option><option value="NV">Nevada</option><option value="NH">New Hampshire</option><option value="NJ">New Jersey</option><option value="NM">New Mexico</option><option value="NY">New York</option><option value="NC">North Carolina</option><option value="ND">North Dakota</option><option value="OH">Ohio</option><option value="OK">Oklahoma</option><option value="OR">Oregon</option><option value="PA">Pennsylvania</option><option value="RI">Rhode Island</option><option value="SC">South Carolina</option><option value="SD">South Dakota</option><option value="TN">Tennessee</option><option value="TX">Texas</option><option value="UT">Utah</option><option value="VT">Vermont</option><option value="VA">Virginia</option><option value="WA">Washington</option><option value="WV">West Virginia</option><option value="WI">Wisconsin</option><option value="WY">Wyoming</option>
           </select>
-          <span id="jurisdiction-help">Manual selection only; this app never uses device location.</span>
+          <span id="jurisdiction-help">Choose any location manually, or use your device to suggest the current state.</span>
         </label>
+        <div class="device-location-control">
+          <button id="use-device-location" class="secondary-button" type="button" aria-describedby="device-location-help">Use device location</button>
+          <span id="device-location-help">Optional: asks your browser for location, then sends an approximate coordinate once to the U.S. Census Bureau Geocoder to suggest a state. Edge Scanner does not save coordinates or share them with sportsbooks.</span>
+        </div>
         <button id="refresh" type="button">Refresh lines</button>
       </section>
 
+      <p id="device-location-status" class="device-location-status" aria-live="polite"></p>
       <section id="jurisdiction-status" class="jurisdiction-status" aria-live="polite"></section>
       <section id="status" class="status" aria-live="polite">Ready to load odds.</section>
       <section id="summary" class="summary" hidden></section>
@@ -54,7 +59,7 @@
         <article class="utility-card">
           <p class="eyebrow">HOME VENUE CONTEXT</p>
           <h2>Matchup location</h2>
-          <p>The home team determines the arena or stadium. A selected game, or a loaded upcoming home matchup, supplies the official start date. NFL matchups also include venue weather. Away-team and device locations are never used.</p>
+          <p>The home team determines the arena or stadium. A selected game, or a loaded upcoming home matchup, supplies the official start date. NFL matchups also include venue weather. Your device location can only suggest a betting jurisdiction; it never changes a matchup venue.</p>
           <form id="venue-form" class="venue-form">
             <label class="full-width">
               Upcoming game
@@ -144,6 +149,6 @@
         </article>
       </section>
     </main>
-    <script src="/static/app.js?v=roster-fallback-20261021"></script>
+    <script src="/static/app.js?v=device-jurisdiction-20261022"></script>
   </body>
 </html>

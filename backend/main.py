@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -32,6 +32,7 @@ from scrapers.api_sports_scraper import (
     fetch_nfl_matchup_insights,
 )
 from scrapers.weather_scraper import WeatherProviderUnavailable, fetch_game_weather
+from scrapers.jurisdiction_lookup import DeviceJurisdictionUnavailable, lookup_device_jurisdiction
 
 
 app = FastAPI(title="Edge Scanner 2", version="0.5.0")
@@ -101,11 +102,34 @@ class TrackingEntryRequest(BaseModel):
     source: Literal["manual", "ocr_confirmed"] = "manual"
 
 
+class DeviceLocationRequest(BaseModel):
+    """Approximate browser coordinates used once to suggest a U.S. state."""
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     """Return a small response that confirms the API is running."""
 
     return {"status": "ok"}
+
+
+@app.post("/jurisdiction/device")
+async def device_jurisdiction(request: DeviceLocationRequest, response: Response) -> dict[str, str | bool]:
+    """Suggest a state after an opt-in browser location request.
+
+    Coordinates arrive in a POST body so they do not appear in the local
+    server's request URL. They are not saved by Edge Scanner.
+    """
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        state = await lookup_device_jurisdiction(request.latitude, request.longitude)
+    except DeviceJurisdictionUnavailable as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {**state, "approximate": True, "coordinates_stored": False}
 
 
 @app.get("/data/status")
