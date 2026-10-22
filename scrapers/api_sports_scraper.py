@@ -383,6 +383,13 @@ def _player_name(record: dict[str, Any]) -> str:
     return first_last or "Player unavailable"
 
 
+def _player_id(record: dict[str, Any]) -> str | None:
+    """Return the provider player identifier when the response includes one."""
+
+    value = _nested(record, "player", "id") or record.get("player_id") or record.get("id")
+    return str(value) if value is not None else None
+
+
 def _quarterback_summary(records: list[dict[str, Any]]) -> dict[str, Any] | None:
     candidates: list[dict[str, Any]] = []
     for record in records:
@@ -481,12 +488,21 @@ def _notable_nba_players(
     injury_records: list[dict[str, Any]] | None,
     *,
     historical: bool = False,
-    allowed_player_names: set[str] | None = None,
+    roster_membership: dict[str, set[str]] | None = None,
 ) -> list[dict[str, Any]]:
     injuries = _injury_map(injury_records)
 
     def included(record: dict[str, Any]) -> bool:
-        return allowed_player_names is None or _normalize(_player_name(record)) in allowed_player_names
+        if roster_membership is None:
+            return True
+
+        # A provider player ID is authoritative. Only use a normalized name when
+        # one of the two responses does not include an ID.
+        player_id = _player_id(record)
+        roster_ids = roster_membership["ids"]
+        if player_id and roster_ids:
+            return player_id in roster_ids
+        return _normalize(_player_name(record)) in roster_membership["names"]
 
     def availability(name: str) -> str | None:
         if historical:
@@ -557,17 +573,37 @@ def _notable_nba_players(
     return sorted(players, key=lambda player: player["points_per_game"] or 0, reverse=True)[:3]
 
 
-def _roster_player_names(records: list[dict[str, Any]] | None) -> set[str] | None:
-    """Return the provider-confirmed current roster, or None when it was unavailable."""
+def _roster_membership(
+    records: list[dict[str, Any]] | None,
+    expected_team_id: str | None,
+) -> dict[str, set[str]] | None:
+    """Return a provider-confirmed roster, rejecting an explicitly wrong team."""
 
     if records is None:
         return None
-    names = {
-        normalized
+
+    # The NBA API normally scopes this endpoint by the requested team. Some
+    # provider responses also include a team ID. When that ID is present, do
+    # not accept records for a different team; it is safer to show no player
+    # data than to label another team's players as the selected team.
+    declared_team_ids = {_team_id(record) for record in records if _team_id(record) is not None}
+    if expected_team_id and declared_team_ids and declared_team_ids != {expected_team_id}:
+        return None
+
+    scoped_records = [
+        record
         for record in records
+        if not expected_team_id or _team_id(record) in {None, expected_team_id}
+    ]
+    player_ids = {player_id for record in scoped_records if (player_id := _player_id(record))}
+    player_names = {
+        normalized
+        for record in scoped_records
         if (normalized := _normalize(_player_name(record))) and normalized != _normalize("Player unavailable")
     }
-    return names or None
+    if not player_ids and not player_names:
+        return None
+    return {"ids": player_ids, "names": player_names}
 
 
 def _nba_form(game_records: list[dict[str, Any]] | None, team_id: str | None) -> dict[str, Any]:
@@ -672,7 +708,7 @@ def summarize_nba_team(
     ]
     scored_points = [opponent for _, opponent in completed_scores if opponent is not None]
     points_allowed = _average(scored_points) or _stat_per_game(values, games, "points", "against")
-    current_roster_names = _roster_player_names(current_roster_records)
+    current_roster = _roster_membership(current_roster_records, team_id)
     historical_context = None
     historical_players: list[dict[str, Any]] = []
     if historical_season is not None and historical_player_records is not None:
@@ -680,15 +716,22 @@ def summarize_nba_team(
             historical_player_records,
             None,
             historical=True,
-            allowed_player_names=current_roster_names,
-        ) if current_roster_names is not None else []
+            roster_membership=current_roster,
+        ) if current_roster is not None else []
         historical_context = {
             "season": str(historical_season),
             "players": historical_players,
-            "roster_verified": current_roster_names is not None,
+            "roster_verified": current_roster is not None,
         }
 
-    current_players = _notable_nba_players(player_records, injury_records)
+    # Current-season player statistics can include old team associations around
+    # trades or pre-season. Never display them until the current roster endpoint
+    # confirms the same player belongs to this team.
+    current_players = _notable_nba_players(
+        player_records,
+        injury_records,
+        roster_membership=current_roster,
+    ) if current_roster is not None else []
     current_injuries = _injury_map(injury_records)
     fallback_players = [
         {

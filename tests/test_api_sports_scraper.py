@@ -186,6 +186,7 @@ def test_nba_summary_keeps_unavailable_injury_data_distinct_from_no_injuries() -
             }
         ],
         None,
+        current_roster_records=[{"player": {"name": "Player Example"}}],
     )
 
     assert result["offense"]["points_per_game"] == 113.4
@@ -260,7 +261,10 @@ def test_nba_direct_stat_and_game_log_shape_is_normalized() -> None:
             }
         ],
         2025,
-        [{"name": "Historical Star"}],
+        [
+            {"name": "Player Example"},
+            {"name": "Historical Star"},
+        ],
     )
 
     assert result["games"] == 10
@@ -319,3 +323,48 @@ def test_nba_notable_players_fall_back_to_current_roster_with_prior_season_conte
 
     assert result["notable_players_source"] == "previous_season_roster"
     assert [player["name"] for player in result["notable_players"]] == ["Returning Player"]
+
+
+def test_nba_current_players_exclude_players_not_on_the_confirmed_roster() -> None:
+    result = summarize_nba_team(
+        "Oklahoma City Thunder",
+        {"games": 1, "points": 110, "fgm": 40, "fga": 80, "tpm": 10, "tpa": 30, "ftm": 20, "fta": 25},
+        [
+            {"player": {"id": 2, "name": "Thunder Player"}, "statistics": {"games": {"played": 1}, "points": {"average": 25}}},
+            {"player": {"id": 3, "name": "Celtics Player"}, "statistics": {"games": {"played": 1}, "points": {"average": 30}}},
+        ],
+        [],
+        team_id="1",
+        current_roster_records=[{"player": {"id": 2, "name": "Thunder Player"}}],
+    )
+
+    assert result["notable_players_source"] == "current_season"
+    assert [player["name"] for player in result["notable_players"]] == ["Thunder Player"]
+
+
+def test_nba_roster_player_ids_take_priority_over_matching_names() -> None:
+    result = summarize_nba_team(
+        "Example Team",
+        {"games": 1, "points": 100, "fgm": 40, "fga": 80, "tpm": 10, "tpa": 30, "ftm": 10, "fta": 12},
+        [{"player": {"id": 99, "name": "Jordan Example"}, "statistics": {"games": {"played": 1}, "points": {"average": 22}}}],
+        [],
+        team_id="1",
+        current_roster_records=[{"player": {"id": 7, "name": "Jordan Example"}}],
+    )
+
+    assert result["notable_players_source"] == "unavailable"
+    assert result["notable_players"] == []
+
+
+def test_nba_explicit_wrong_team_roster_response_hides_player_data() -> None:
+    result = summarize_nba_team(
+        "Oklahoma City Thunder",
+        {"games": 1, "points": 110, "fgm": 40, "fga": 80, "tpm": 10, "tpa": 30, "ftm": 20, "fta": 25},
+        [{"player": {"id": 3, "name": "Celtics Player"}, "statistics": {"games": {"played": 1}, "points": {"average": 30}}}],
+        [],
+        team_id="1",
+        current_roster_records=[{"team": {"id": "2"}, "player": {"id": 3, "name": "Celtics Player"}}],
+    )
+
+    assert result["notable_players_source"] == "unavailable"
+    assert result["notable_players"] == []
