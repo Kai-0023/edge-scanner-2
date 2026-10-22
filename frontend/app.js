@@ -41,6 +41,7 @@ let selectedGameTime = "";
 const upcomingGames = new Map();
 let displayedSportsbooks = [];
 let jurisdictionSource = "manual";
+let analysisTabCounter = 0;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -209,13 +210,21 @@ function playerMetrics(players) {
   return players.flatMap((player) => {
     const metrics = [[
       player.name,
-      `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
+      `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST · ${formatMetric(player.steals_per_game)} STL · ${formatMetric(player.blocks_per_game)} BLK`,
     ]];
     if (hasReportedInjury(player.availability)) {
       metrics.push(["Reported injury", `${player.name}: ${player.availability}`]);
     }
     return metrics;
   });
+}
+
+function rosterMetrics(roster) {
+  const players = Array.isArray(roster?.players) ? roster.players : [];
+  if (!players.length) {
+    return [["Status", "Current roster information is unavailable for this team."]];
+  }
+  return players.map((player) => [player.name || "Player unavailable", player.position || "Position unavailable"]);
 }
 
 function createTeamHeader(team, side) {
@@ -264,6 +273,85 @@ function createNflTeamInsightCard(team, side) {
   return card;
 }
 
+function availabilityMetrics(context) {
+  if (!context?.available) {
+    return [["Status", context?.reason || "Availability data is unavailable from the provider."]];
+  }
+  const players = Array.isArray(context.players) ? context.players : [];
+  if (!players.length) {
+    return [["Status", context.reason || "No provider-reported availability notices were returned for the tracked positions."]];
+  }
+  return [
+    ["Reading this", "Provider-reported availability context only. It does not confirm game-day active status or change the scoring blend."],
+    ...players.map((player) => [
+      `${player.position || "Position"} · ${player.name || "Player unavailable"}`,
+      [player.status, player.reason].filter(Boolean).join(" · "),
+    ]),
+  ];
+}
+
+function quarterbackReturnMetrics(context) {
+  if (!context?.available) {
+    return [["Status", context?.reason || "Quarterback continuity data is unavailable."]];
+  }
+  if (!context.detected) {
+    return [["Status", context.reason || "No recent return-to-action pattern was found."]];
+  }
+  const gapGames = Number(context.consecutive_prior_games_without_passing_record);
+  const gapLabel = `${formatMetric(gapGames)} prior completed game${gapGames === 1 ? "" : "s"} without a passing-stat record`;
+  const offense = context.offense || {};
+  return [
+    ["Quarterback", context.quarterback?.name || "Quarterback unavailable"],
+    ["Return-to-action pattern", gapLabel],
+    ["Other primary passer(s)", Array.isArray(context.replacement_quarterbacks) && context.replacement_quarterbacks.length ? context.replacement_quarterbacks.join(" · ") : "—"],
+    ["Team scoring", `${formatMetric(offense.points_in_return_game)} in the return game · ${formatMetric(offense.points_per_game_during_gap)} / game during the gap`],
+    ["Data limit", context.method || "One game is not enough to say the offense is back to its normal level."],
+  ];
+}
+
+function createNflAvailabilityCard(team, side) {
+  const card = document.createElement("article");
+  card.className = "insight-team";
+  card.append(createTeamHeader(team, side));
+  addInsightSection(card, "Key availability", availabilityMetrics(team.availability), "player-section availability-section");
+  addInsightSection(card, "Quarterback return context", quarterbackReturnMetrics(team.quarterback_return_context), "player-section quarterback-return-section");
+  return card;
+}
+
+function opponentStrengthLine(group, mode) {
+  const primaryValue = mode === "offense" ? group?.points_per_game : group?.points_allowed_per_game;
+  if (!group || !group.games || primaryValue === null || primaryValue === undefined) {
+    return "Not enough completed games against this opponent group yet.";
+  }
+  const games = `${formatMetric(group.games)} game${Number(group.games) === 1 ? "" : "s"}`;
+  const delta = formatSignedMetric(group.delta_from_opponent_norm);
+  if (mode === "offense") {
+    return `${formatMetric(group.points_per_game)} PPG · ${delta} vs opponents' usual allowance · ${games}`;
+  }
+  return `${formatMetric(group.points_allowed_per_game)} allowed · ${delta} vs opponents' usual scoring · ${games}`;
+}
+
+function createNflOpponentStrengthCard(team, side) {
+  const card = document.createElement("article");
+  card.className = "insight-team";
+  card.append(createTeamHeader(team, side));
+  const context = team.opponent_strength;
+  if (!context?.available) {
+    addInsightSection(card, "Opponent strength", [["Status", context?.reason || "Opponent-strength context is unavailable."]], "player-section");
+    return card;
+  }
+  addInsightSection(card, "Offense against defenses", [
+    ["Vs stronger defenses", opponentStrengthLine(context.offense?.vs_stronger_defenses, "offense")],
+    ["Vs weaker defenses", opponentStrengthLine(context.offense?.vs_weaker_defenses, "offense")],
+  ], "player-section opponent-strength-section");
+  addInsightSection(card, "Defense against offenses", [
+    ["Vs premier offenses", opponentStrengthLine(context.defense?.vs_premier_offenses, "defense")],
+    ["Vs weaker offenses", opponentStrengthLine(context.defense?.vs_weaker_offenses, "defense")],
+  ], "player-section opponent-strength-section");
+  addInsightSection(card, "How to read this", [["Season context", context.method]], "player-section opponent-strength-section");
+  return card;
+}
+
 function createNbaTeamInsightCard(team, side) {
   const card = document.createElement("article");
   card.className = "insight-team";
@@ -305,6 +393,18 @@ function createNbaTeamInsightCard(team, side) {
     ["Recent points / allowed", `${formatMetric(form.recent_points_per_game)} / ${formatMetric(form.recent_points_allowed_per_game)}`],
   ]);
 
+  return card;
+}
+
+function createNbaPlayerInsightCard(team, side) {
+  const card = document.createElement("article");
+  card.className = "insight-team";
+  card.append(createTeamHeader(team, side));
+
+  addInsightSection(card, "Current roster", rosterMetrics(team.current_roster), "player-section");
+  addInsightSection(card, "Starting lineup", [
+    ["Game-day status", "This data source does not confirm starters. Check the official starting five close to tipoff."],
+  ], "player-section lineup-section");
   const historical = team.historical_player_context;
   const historicalPlayers = historical?.players || [];
   const players = team.notable_players || [];
@@ -316,23 +416,21 @@ function createNbaTeamInsightCard(team, side) {
       : [["Status", "No player statistics were returned"]];
   addInsightSection(
     card,
-    usesRosterFallback ? `Players to watch · ${nbaSeasonLabel(historical?.season)} context` : "Notable players",
+    usesRosterFallback ? `Top contributors · ${nbaSeasonLabel(historical?.season)} context` : "Top contributors",
     playerMetricsWithContext,
     "player-section",
   );
 
   if (historical && !usesRosterFallback) {
-    const historicalMetrics = !historical.roster_verified
-      ? [["Status", "Past-season player stats are hidden because the current roster could not be confirmed."]]
-      : historicalPlayers.length
-        ? [
-          ["Context", "Prior-season production for players confirmed on the current roster."],
-          ...historicalPlayers.map((player) => [
-            player.name,
-            `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
-          ]),
-        ]
-        : [["Status", "No current-roster players had prior-season statistics returned."]];
+    const historicalMetrics = historicalPlayers.length
+      ? [
+        ["Context", "Prior-season production for players on the displayed roster."],
+        ...historicalPlayers.map((player) => [
+          player.name,
+          `${player.position} · ${formatMetric(player.points_per_game)} PTS · ${formatMetric(player.rebounds_per_game)} REB · ${formatMetric(player.assists_per_game)} AST`,
+        ]),
+      ]
+      : [["Status", "No prior-season player statistics were returned."]];
     addInsightSection(card, `Returning players · ${nbaSeasonLabel(historical.season)}`, historicalMetrics, "player-section historical-section");
   }
   return card;
@@ -395,6 +493,12 @@ function createMatchupSummary(data, game) {
   estimate.textContent = `Scoring blend: ${data.home.team} ${formatMetric(data.matchup_summary.estimated_home_points)} — ${data.away.team} ${formatMetric(data.matchup_summary.estimated_away_points)}.`;
   const method = document.createElement("p");
   method.textContent = data.matchup_summary.method;
+  const opponentStrength = document.createElement("p");
+  opponentStrength.className = "opponent-strength-summary-note";
+  opponentStrength.textContent = data.matchup_summary.opponent_strength_note || "";
+  const availability = document.createElement("p");
+  availability.className = "availability-summary-note";
+  availability.textContent = data.matchup_summary.availability_note || "";
   const market = document.createElement("p");
   market.textContent = marketComparison(game, data.matchup_summary);
   const jurisdiction = document.createElement("p");
@@ -402,26 +506,141 @@ function createMatchupSummary(data, game) {
   jurisdiction.textContent = jurisdictionMessage();
   const disclaimer = document.createElement("p");
   disclaimer.textContent = data.matchup_summary.disclaimer;
-  summary.append(heading, scorecard, estimate, method, market, jurisdiction, disclaimer);
+  summary.append(heading, scorecard, estimate, method, opponentStrength, availability, market, jurisdiction, disclaimer);
   return summary;
+}
+
+function createAiMatchupSummary(game) {
+  const panel = document.createElement("article");
+  panel.className = "ai-matchup-summary";
+  const heading = document.createElement("h3");
+  heading.textContent = "AI matchup summary";
+  const description = document.createElement("p");
+  description.textContent = "Create a concise explanation from the API-Sports data already loaded for this game. This does not replace live roster or injury checks and it does not provide a betting instruction.";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary-button";
+  button.textContent = "Generate AI summary";
+  const status = document.createElement("p");
+  status.className = "ai-summary-status";
+  status.setAttribute("aria-live", "polite");
+  const output = document.createElement("div");
+  output.className = "ai-summary-output";
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "Writing summary…";
+    status.classList.remove("error");
+    status.textContent = "Sending the selected matchup's displayed factual context to Google AI Studio…";
+    output.replaceChildren();
+    const query = new URLSearchParams({
+      home_team: game.home_team,
+      away_team: game.away_team,
+      season: seasonForGame(game),
+    });
+    try {
+      const response = await fetch(`/insights/${game.league}/ai?${query}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Unable to create an AI matchup summary.");
+      if (!data.available) throw new Error(data.reason || "AI matchup summary is unavailable.");
+      const analysis = document.createElement("p");
+      analysis.className = "ai-summary-text";
+      analysis.textContent = data.analysis;
+      const disclaimer = document.createElement("p");
+      disclaimer.className = "ai-summary-disclaimer";
+      disclaimer.textContent = data.disclaimer;
+      output.append(analysis, disclaimer);
+      status.textContent = `Generated by ${data.source}.`;
+    } catch (error) {
+      status.classList.add("error");
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Generate AI summary";
+    }
+  });
+
+  panel.append(heading, description, button, status, output);
+  return panel;
+}
+
+function createAnalysisTabs(views) {
+  const id = `analysis-tabs-${++analysisTabCounter}`;
+  const wrapper = document.createElement("section");
+  wrapper.className = "analysis-tabs";
+  const tabList = document.createElement("div");
+  tabList.className = "analysis-tab-list";
+  tabList.setAttribute("role", "tablist");
+  tabList.setAttribute("aria-label", "Matchup analysis sections");
+  const panels = document.createElement("div");
+  panels.className = "analysis-tab-panels";
+  const buttons = [];
+  const tabPanels = [];
+
+  const activate = (index) => {
+    buttons.forEach((button, buttonIndex) => {
+      const selected = buttonIndex === index;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
+      tabPanels[buttonIndex].hidden = !selected;
+    });
+  };
+
+  views.forEach((view, index) => {
+    const tabId = `${id}-tab-${index}`;
+    const panelId = `${id}-panel-${index}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "analysis-tab-button";
+    button.id = tabId;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-controls", panelId);
+    button.textContent = view.label;
+    button.addEventListener("click", () => activate(index));
+
+    const panel = document.createElement("section");
+    panel.className = "analysis-tab-panel";
+    panel.id = panelId;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", tabId);
+    panel.append(view.content);
+    buttons.push(button);
+    tabPanels.push(panel);
+    tabList.append(button);
+    panels.append(panel);
+  });
+
+  activate(0);
+  wrapper.append(tabList, panels);
+  return wrapper;
+}
+
+function createTeamInsightGrid(homeCard, awayCard) {
+  const grid = document.createElement("div");
+  grid.className = "insight-team-grid";
+  grid.append(homeCard, awayCard);
+  return grid;
 }
 
 function displayNflInsights(data, game) {
   insightResult.replaceChildren();
-  const grid = document.createElement("div");
-  grid.className = "insight-team-grid";
-  grid.append(createNflTeamInsightCard(data.home, "Home team"), createNflTeamInsightCard(data.away, "Away team"));
-  const summary = createMatchupSummary(data, game);
-  insightResult.append(grid, summary);
+  insightResult.append(createAnalysisTabs([
+    { label: "Overview", content: createTeamInsightGrid(createNflTeamInsightCard(data.home, "Home team"), createNflTeamInsightCard(data.away, "Away team")) },
+    { label: "Key availability", content: createTeamInsightGrid(createNflAvailabilityCard(data.home, "Home team"), createNflAvailabilityCard(data.away, "Away team")) },
+    { label: "Opponent strength", content: createTeamInsightGrid(createNflOpponentStrengthCard(data.home, "Home team"), createNflOpponentStrengthCard(data.away, "Away team")) },
+    { label: "Matchup context", content: createMatchupSummary(data, game) },
+    { label: "AI summary", content: createAiMatchupSummary(game) },
+  ]));
 }
 
 function displayNbaInsights(data, game) {
   insightResult.replaceChildren();
-  const grid = document.createElement("div");
-  grid.className = "insight-team-grid";
-  grid.append(createNbaTeamInsightCard(data.home, "Home team"), createNbaTeamInsightCard(data.away, "Away team"));
-  const summary = createMatchupSummary(data, game);
-  insightResult.append(grid, summary);
+  insightResult.append(createAnalysisTabs([
+    { label: "Overview", content: createTeamInsightGrid(createNbaTeamInsightCard(data.home, "Home team"), createNbaTeamInsightCard(data.away, "Away team")) },
+    { label: "Players", content: createTeamInsightGrid(createNbaPlayerInsightCard(data.home, "Home team"), createNbaPlayerInsightCard(data.away, "Away team")) },
+    { label: "Matchup context", content: createMatchupSummary(data, game) },
+    { label: "AI summary", content: createAiMatchupSummary(game) },
+  ]));
 }
 
 async function showTeamInsights(game) {

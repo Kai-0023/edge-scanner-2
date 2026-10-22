@@ -31,6 +31,25 @@ The quarterback section identifies quarterbacks from the team's roster and loads
 
 If the provider has no season record for a listed quarterback, the app does not invent a value. A different quarterback may be shown when they have the largest available passing sample.
 
+## Key availability
+
+The **Key availability** tab requests the provider's NFL injury/availability response and surfaces notices for these tracked positions:
+
+- Quarterback, running back, wide receiver, and tight end
+- Defensive line, linebackers, cornerbacks, and safeties
+
+The API does not provide a trustworthy universal "top player" ranking, so the app does not claim a listed player is the team's top player. It preserves the provider's reported status and reason when available and uses the authorized roster response only to identify a player's position when the injury response omits it.
+
+An empty report does **not** prove every player is healthy or active. A report is also not a final game-day active/inactive designation. Availability notices are visible to the optional AI summary as factual context, but they are not converted into a point adjustment or included in the scoring blend. Confirm final status with official team or league reporting close to kickoff.
+
+## Quarterback return-to-action context
+
+The app reads at most the six most recent completed team games. For each game, it requests the provider's passing-stat group and identifies that game's primary passer by passing yards. A return-to-action pattern is shown only when the latest primary passer had no passing-stat record in one or more immediately prior completed games, and another primary passer was recorded during that gap.
+
+When a pattern appears, the app shows the number of consecutive prior games without that passer's passing record, the other primary passer or passers, team points per game during the gap, and team points in the return game. The optional AI summary gets the same factual fields.
+
+This is deliberately **not** called an injury absence: the provider's injury endpoint is current-only and does not preserve historical injury reports. The pattern could have another explanation, and one return game is not enough evidence that an offense is back to its normal level.
+
 ## Provider field mapping
 
 API-Sports NFL uses a few field formats that require interpretation:
@@ -47,6 +66,8 @@ The app parses these forms server-side and leaves a metric unavailable when the 
 
 - The sample is limited to the most recent completed games made available by the provider.
 - Provider corrections, missing box scores, and delayed injury or roster updates can affect the display.
+- Availability notices are limited to the provider response and selected positions; they are not a full injury report or an official active/inactive list.
+- Return-to-action context uses a short game-stat sample. Missing player-stat data breaks the sequence rather than being counted as a missed game.
 - Red-zone rates and other small-sample statistics can change quickly early in a season.
 - The current scoring blend is descriptive and is not a validated prediction model.
 
@@ -60,4 +81,4 @@ The underlying endpoint is:
 GET /insights/nfl?home_team=New%20Orleans%20Saints&away_team=Atlanta%20Falcons&season=2025
 ```
 
-Each team object includes `quarterback`, `offense`, and `defense`. The team `games` value identifies how many completed-game samples were used for the displayed team averages.
+Each team object includes `quarterback`, `offense`, `defense`, `opponent_strength`, `availability`, and `quarterback_return_context`. The team `games` value identifies how many completed-game samples were used for the displayed team averages.

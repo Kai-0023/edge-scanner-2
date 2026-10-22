@@ -29,11 +29,17 @@ The following measurements come from the current API-NBA season data:
 
 The **Completed-game form** section uses only finished games returned by the provider. It shows the record, last five results, point differential per game, recent points scored, and recent points allowed.
 
-### Current notable players
+### Top contributors
 
-The **Notable players** section summarizes the highest-scoring player game logs returned for the selected season. An availability message is shown only when the provider returns an injury report; a missing injury report is not proof that a player is healthy or active.
+The **Top contributors** section ranks up to five roster-confirmed players using a simple box-score contribution score: points + rebounds + assists + steals + blocks per game. The individual values remain visible so users can see how each player contributes. This is a simple production view, not an all-in-one player rating or a method for selecting starters. An availability message is shown only when the provider returns an injury report; a missing injury report is not proof that a player is healthy or active.
 
 During preseason, this group may be made up of players receiving preseason minutes rather than the team's usual stars.
+
+### Current roster and starting lineup
+
+The **Players** tab shows a short current-roster list with player names and positions. The application keeps provider IDs and roster-verification checks on the server rather than displaying them to the user. If the provider response is missing or identifies a different team, the player list is hidden rather than risking a cross-team roster.
+
+The roster is not a confirmed game-day starting five. The application does not guess starters from roster membership or preseason minutes; confirm the official lineup close to tipoff.
 
 ### Established players from the prior season
 
@@ -78,4 +84,4 @@ The underlying endpoint is:
 GET /insights/nba?home_team=Washington%20Wizards&away_team=Milwaukee%20Bucks&season=2026
 ```
 
-Each team's response includes `offense`, `defense`, `form`, `notable_players`, and `historical_player_context`. The `historical_player_context` object contains the prior season label and up to three production leaders from that season.
+Each team's browser response includes `offense`, `defense`, `form`, `current_roster`, `notable_players`, and `historical_player_context`. The `current_roster` object contains a small display-safe player sample with names and positions. Provider IDs, canonical team IDs, and verification state remain internal server details. The `historical_player_context` object contains the prior season label and up to three production leaders from that season.

@@ -5,6 +5,7 @@ __pycache__/
 .qa-venv/
 venv/
 .env
+.env.*
 
 # Local data (keep empty folders available in the repository)
 data/raw/*

@@ -256,6 +256,33 @@ li { padding: 7px 0; font-size: .86rem; }
 .injury-metric { grid-column: 1 / -1; min-height: auto; background: rgba(198, 105, 99, .14) !important; border-color: rgba(232, 132, 124, .56) !important; }
 .injury-metric span, .injury-metric strong { color: #ffd1cd; }
 
+/* Optional server-side Gemini interpretation of the factual team cards. */
+.ai-matchup-summary { display: grid; gap: 12px; padding: 20px; background: linear-gradient(145deg, #101d34, #0d1729); border: 1px solid #3b5d8b; border-radius: 16px; }
+.ai-matchup-summary h3 { margin: 0; color: #f1f5ff; }
+.ai-matchup-summary > p { max-width: 78ch; margin: 0; color: #cbd5ec; line-height: 1.5; }
+.ai-matchup-summary button { width: fit-content; }
+.ai-summary-status { min-height: 1.4em; margin: 0; color: #aebbd8; font-size: .86rem; line-height: 1.45; }
+.ai-summary-status.error { color: #ffb4ae; }
+.ai-summary-output { display: grid; gap: 12px; }
+.ai-summary-text { margin: 0; padding: 15px; overflow-wrap: anywhere; white-space: pre-wrap; background: #0b1425; border: 1px solid #30496f; border-radius: 10px; color: #eef4ff; line-height: 1.6; }
+.ai-summary-disclaimer { margin: 0; padding: 10px 12px; background: rgba(225, 183, 100, .1); border: 1px solid rgba(225, 183, 100, .35); border-radius: 9px; color: #f1d9a4; font-size: .82rem; line-height: 1.45; }
+
+/* Clear sub-navigation keeps detailed analysis from becoming one long page. */
+.analysis-tabs { display: grid; gap: 16px; }
+.analysis-tab-list { display: flex; gap: 8px; flex-wrap: wrap; padding: 7px; background: #10192c; border: 1px solid #2d4266; border-radius: 13px; }
+.analysis-tab-button { min-height: 38px; padding: 0 14px; background: transparent; border: 1px solid transparent; border-radius: 8px; color: #b8c8e4; font-size: .84rem; box-shadow: none; }
+.analysis-tab-button:hover:not(:disabled), .analysis-tab-button:focus-visible { background: #1d2d4b; border-color: #49658f; box-shadow: none; }
+.analysis-tab-button.active { background: linear-gradient(135deg, #344e78, #253a60); border-color: #506d9d; color: #fff; }
+.analysis-tab-panel[hidden] { display: none; }
+.analysis-tab-panel > .insight-summary, .analysis-tab-panel > .ai-matchup-summary { max-width: 900px; }
+.lineup-section .insight-metric { background: rgba(225, 183, 100, .1); border-color: rgba(225, 183, 100, .42); }
+.lineup-section .insight-metric span, .lineup-section .insight-metric strong { color: #f1d9a4; }
+.opponent-strength-section .insight-metric strong { line-height: 1.45; }
+.opponent-strength-summary-note { color: #a7c7ee !important; font-size: .87rem; }
+.availability-section .insight-metric:first-child { background: rgba(218, 173, 84, .12); border-color: rgba(231, 191, 105, .45); }
+.availability-summary-note { color: #e7cd92 !important; font-size: .87rem; }
+.quarterback-return-section .insight-metric:first-child { background: rgba(88, 162, 221, .13); border-color: rgba(112, 188, 244, .44); }
+
 @media (max-width: 980px) {
   .controls { grid-template-columns: minmax(145px, .5fr) minmax(220px, 1fr); }
   .controls button { grid-column: 1 / -1; }
@@ -277,4 +304,8 @@ li { padding: 7px 0; font-size: .86rem; }
   .venue-form .full-width { grid-column: auto; }
   .insight-metrics { grid-template-columns: 1fr; }
   .insight-metric { min-height: auto; }
+  .ai-matchup-summary { padding: 16px; }
+  .ai-matchup-summary button { width: 100%; }
+  .analysis-tab-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analysis-tab-button { width: 100%; }
 }

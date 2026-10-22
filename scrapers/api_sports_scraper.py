@@ -18,6 +18,8 @@ import httpx
 
 from backend.dependencies import settings
 from logic.nfl_game_analysis import matchup_summary
+from logic.nfl_opponent_strength import nfl_opponent_strength_context
+from logic.nfl_qb_return_context import quarterback_return_context
 
 
 NFL_BASE_URL = "https://v1.american-football.api-sports.io"
@@ -25,6 +27,65 @@ NBA_BASE_URL = "https://v2.nba.api-sports.io"
 CACHE_SECONDS = 15 * 60
 MAX_NFL_COMPLETED_GAMES = 18
 MAX_NFL_QUARTERBACKS = 8
+MAX_NFL_QUARTERBACK_RETURN_GAMES = 6
+MAX_NBA_CONTRIBUTORS = 5
+
+# These positions are surfaced as context because an availability report for a
+# primary passer, skill player, or defensive playmaker can materially change
+# how a human reads a matchup. The provider does not tell us who is "top," so
+# the app intentionally does not make that claim or assign a point adjustment.
+NFL_AVAILABILITY_POSITIONS = {
+    "qb": "QB",
+    "quarterback": "QB",
+    "rb": "RB",
+    "runningback": "RB",
+    "wr": "WR",
+    "widereceiver": "WR",
+    "te": "TE",
+    "tightend": "TE",
+    "de": "DE",
+    "defensiveend": "DE",
+    "dt": "DT",
+    "defensivetackle": "DT",
+    "nt": "NT",
+    "nosetackle": "NT",
+    "dl": "DL",
+    "defensiveline": "DL",
+    "lb": "LB",
+    "linebacker": "LB",
+    "olb": "OLB",
+    "outsidelinebacker": "OLB",
+    "ilb": "ILB",
+    "insidelinebacker": "ILB",
+    "cb": "CB",
+    "cornerback": "CB",
+    "s": "S",
+    "safety": "S",
+    "fs": "FS",
+    "freesafety": "FS",
+    "ss": "SS",
+    "strongsafety": "SS",
+    "db": "DB",
+    "defensiveback": "DB",
+}
+NFL_AVAILABILITY_PRIORITY = {
+    "QB": 0,
+    "RB": 1,
+    "WR": 2,
+    "TE": 3,
+    "DE": 4,
+    "DT": 5,
+    "NT": 6,
+    "DL": 7,
+    "LB": 8,
+    "OLB": 9,
+    "ILB": 10,
+    "CB": 11,
+    "S": 12,
+    "FS": 13,
+    "SS": 14,
+    "DB": 15,
+}
 
 _cache: dict[str, tuple[float, Any]] = {}
 
@@ -66,6 +127,24 @@ def _percentage(numerator: float | None, denominator: float | None) -> float | N
     if numerator is None or denominator is None or denominator <= 0:
         return None
     return _round(numerator / denominator * 100)
+
+
+def _box_score_contribution(
+    points: float | None,
+    rebounds: float | None,
+    assists: float | None,
+    steals: float | None,
+    blocks: float | None,
+) -> float | None:
+    """Return a transparent P+R+A+STL+BLK contributor score.
+
+    The score highlights broad box-score production only; it is not an
+    all-in-one player rating and is never used to infer a starting lineup.
+    """
+
+    if points is None and rebounds is None and assists is None:
+        return None
+    return _round(sum(value or 0 for value in (points, rebounds, assists, steals, blocks)))
 
 
 def _flatten_numbers(value: Any, prefix: str = "") -> dict[str, float]:
@@ -219,6 +298,22 @@ async def _resolve_team(league: str, team_name: str, season: int) -> dict[str, A
 def _game_id(game: dict[str, Any]) -> str | None:
     value = game.get("id") or _nested(game, "game", "id")
     return str(value) if value is not None else None
+
+
+def _nfl_game_timestamp(game: dict[str, Any]) -> float:
+    """Use the provider's UTC timestamp to keep completed games chronological."""
+
+    return _number(_nested(game, "game", "date", "timestamp")) or _number(_nested(game, "date", "timestamp")) or 0
+
+
+def _nfl_game_date(game: dict[str, Any]) -> str | None:
+    return _text(
+        game,
+        ("game", "date", "date"),
+        ("date", "date"),
+        ("game", "date", "start"),
+        ("date", "start"),
+    )
 
 
 def _game_status(game: dict[str, Any]) -> str:
@@ -390,6 +485,126 @@ def _player_id(record: dict[str, Any]) -> str | None:
     return str(value) if value is not None else None
 
 
+def _nfl_availability_position(value: object) -> str | None:
+    """Normalize only the skill and defensive positions shown in availability context."""
+
+    return NFL_AVAILABILITY_POSITIONS.get(_normalize(value))
+
+
+def _nfl_key_availability(
+    injury_records: list[dict[str, Any]] | None, roster_players: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Return provider-reported availability notices for impactful NFL positions.
+
+    API-Sports availability responses can omit a player's position. A roster
+    match supplies the position when possible, but the report's own status and
+    reason are preserved rather than inferred. An empty response never means a
+    player is active or healthy.
+    """
+
+    if injury_records is None:
+        return {
+            "available": False,
+            "players": [],
+            "reason": "Availability data is unavailable from the provider.",
+        }
+
+    roster_by_id: dict[str, dict[str, Any]] = {}
+    roster_by_name: dict[str, dict[str, Any]] = {}
+    for player in roster_players:
+        player_id = _player_id(player)
+        player_name = _player_name(player)
+        if player_id:
+            roster_by_id[player_id] = player
+        if player_name != "Player unavailable":
+            roster_by_name[_normalize(player_name)] = player
+
+    notices: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for injury in injury_records:
+        player_id = _player_id(injury)
+        player_name = _player_name(injury)
+        roster_player = roster_by_id.get(player_id or "") or roster_by_name.get(_normalize(player_name))
+        position = _nfl_availability_position(
+            _text(injury, ("player", "position"), ("position",), ("player", "pos"))
+        )
+        if position is None and roster_player:
+            position = _nfl_availability_position(
+                _text(roster_player, ("position",), ("player", "position"), ("pos",))
+            )
+        if position is None:
+            continue
+
+        name = player_name
+        if name == "Player unavailable" and roster_player:
+            name = _player_name(roster_player)
+        identity = player_id or _normalize(name)
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+
+        status = _text(
+            injury,
+            ("status",),
+            ("player", "status"),
+            ("type",),
+            ("player", "type"),
+        ) or "Reported availability issue"
+        reason = _text(injury, ("reason",), ("player", "reason"), ("description",), ("comment",))
+        if reason and _normalize(reason) == _normalize(status):
+            reason = None
+        notices.append(
+            {
+                "name": name,
+                "position": position,
+                "status": status,
+                "reason": reason or "",
+            }
+        )
+
+    notices.sort(key=lambda player: (NFL_AVAILABILITY_PRIORITY.get(player["position"], 99), player["name"]))
+    return {
+        "available": True,
+        "players": notices,
+        "reason": (
+            "No provider-reported availability issues were returned for the tracked positions. "
+            "This is not confirmation that every player is active."
+            if not notices
+            else "Provider-reported availability notices for QB, skill positions, and defensive impact positions."
+        ),
+    }
+
+
+def _nfl_game_passing_leader(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the passing-yard leader from one game-player-statistics response."""
+
+    candidates: list[dict[str, Any]] = []
+    for record in records:
+        for group in _records(record.get("groups")):
+            if _normalize(group.get("name")) != "passing":
+                continue
+            for player_record in _records(group.get("players")):
+                player_id = _player_id(player_record)
+                if not player_id:
+                    continue
+                yards = None
+                for statistic in _records(player_record.get("statistics")):
+                    if _normalize(statistic.get("name")) == "yards":
+                        yards = _number(statistic.get("value"))
+                        break
+                candidates.append(
+                    {
+                        "id": player_id,
+                        "name": _player_name(player_record),
+                        "passing_yards": yards or 0,
+                    }
+                )
+    if not candidates:
+        return None
+    leader = max(candidates, key=lambda player: player["passing_yards"])
+    return {"id": leader["id"], "name": leader["name"]}
+
+
 def _quarterback_summary(records: list[dict[str, Any]]) -> dict[str, Any] | None:
     candidates: list[dict[str, Any]] = []
     for record in records:
@@ -529,25 +744,39 @@ def _notable_nba_players(
                     "points": 0.0,
                     "rebounds": 0.0,
                     "assists": 0.0,
+                    "steals": 0.0,
+                    "blocks": 0.0,
                 },
             )
             player["games"] += 1
             player["points"] += _number(record.get("points")) or 0
             player["rebounds"] += _number(record.get("totReb")) or 0
             player["assists"] += _number(record.get("assists")) or 0
-        players = [
-            {
-                "name": player["name"],
-                "position": player["position"],
-                "points_per_game": _round(player["points"] / player["games"]),
-                "rebounds_per_game": _round(player["rebounds"] / player["games"]),
-                "assists_per_game": _round(player["assists"] / player["games"]),
-                "availability": availability(player["name"]),
-            }
-            for player in aggregates.values()
-            if player["games"]
-        ]
-        return sorted(players, key=lambda player: player["points_per_game"] or 0, reverse=True)[:3]
+            player["steals"] += _number(record.get("steals")) or 0
+            player["blocks"] += _number(record.get("blocks")) or 0
+        players = []
+        for player in aggregates.values():
+            if not player["games"]:
+                continue
+            points = _round(player["points"] / player["games"])
+            rebounds = _round(player["rebounds"] / player["games"])
+            assists = _round(player["assists"] / player["games"])
+            steals = _round(player["steals"] / player["games"])
+            blocks = _round(player["blocks"] / player["games"])
+            players.append(
+                {
+                    "name": player["name"],
+                    "position": player["position"],
+                    "points_per_game": points,
+                    "rebounds_per_game": rebounds,
+                    "assists_per_game": assists,
+                    "steals_per_game": steals,
+                    "blocks_per_game": blocks,
+                    "box_score_contribution": _box_score_contribution(points, rebounds, assists, steals, blocks),
+                    "availability": availability(player["name"]),
+                }
+            )
+        return sorted(players, key=lambda player: player["box_score_contribution"] or 0, reverse=True)[:MAX_NBA_CONTRIBUTORS]
 
     players: list[dict[str, Any]] = []
     for record in records:
@@ -560,17 +789,24 @@ def _notable_nba_players(
             total = _find_number(values, "points", "total")
             points = _round(total / games) if total is not None and games and games > 0 else None
         name = _player_name(record)
+        rebounds = _stat_per_game(values, _find_number(values, "games", "played"), "rebounds")
+        assists = _stat_per_game(values, _find_number(values, "games", "played"), "assists")
+        steals = _stat_per_game(values, _find_number(values, "games", "played"), "steals")
+        blocks = _stat_per_game(values, _find_number(values, "games", "played"), "blocks")
         players.append(
             {
                 "name": name,
                 "position": _text(record, ("player", "position"), ("position",)) or "—",
                 "points_per_game": points,
-                "rebounds_per_game": _stat_per_game(values, _find_number(values, "games", "played"), "rebounds"),
-                "assists_per_game": _stat_per_game(values, _find_number(values, "games", "played"), "assists"),
+                "rebounds_per_game": rebounds,
+                "assists_per_game": assists,
+                "steals_per_game": steals,
+                "blocks_per_game": blocks,
+                "box_score_contribution": _box_score_contribution(points, rebounds, assists, steals, blocks),
                 "availability": availability(name),
             }
         )
-    return sorted(players, key=lambda player: player["points_per_game"] or 0, reverse=True)[:3]
+    return sorted(players, key=lambda player: player["box_score_contribution"] or 0, reverse=True)[:MAX_NBA_CONTRIBUTORS]
 
 
 def _roster_membership(
@@ -604,6 +840,59 @@ def _roster_membership(
     if not player_ids and not player_names:
         return None
     return {"ids": player_ids, "names": player_names}
+
+
+def _current_roster_snapshot(
+    records: list[dict[str, Any]] | None,
+    expected_team_id: str | None,
+    *,
+    limit: int = 6,
+) -> dict[str, Any]:
+    """Create a display-safe current roster sample for one verified NBA team.
+
+    The player list is intentionally omitted when the provider payload cannot
+    be confirmed for the selected canonical team ID. This prevents a valid
+    response for one team from being labeled as another team's roster.
+    """
+
+    membership = _roster_membership(records, expected_team_id)
+    snapshot: dict[str, Any] = {
+        "team_id": expected_team_id,
+        "verified": membership is not None,
+        "count": 0,
+        "players": [],
+    }
+    if membership is None:
+        return snapshot
+
+    # Prefer the provider's numeric IDs for the count. Some roster responses
+    # contain names without IDs, so retain names as a safe fallback.
+    snapshot["count"] = len(membership["ids"]) or len(membership["names"])
+    seen: set[str] = set()
+    players: list[dict[str, str | None]] = []
+    for record in records or []:
+        record_team_id = _team_id(record)
+        if expected_team_id and record_team_id not in {None, expected_team_id}:
+            continue
+        name = _player_name(record)
+        if name == "Player unavailable":
+            continue
+        player_id = _player_id(record)
+        identity = f"id:{player_id}" if player_id else f"name:{_normalize(name)}"
+        if identity in seen:
+            continue
+        seen.add(identity)
+        players.append(
+            {
+                "id": player_id,
+                "name": name,
+                "position": _text(record, ("player", "position"), ("position",), ("pos",)) or "—",
+            }
+        )
+        if len(players) == limit:
+            break
+    snapshot["players"] = players
+    return snapshot
 
 
 def _nba_form(game_records: list[dict[str, Any]] | None, team_id: str | None) -> dict[str, Any]:
@@ -709,6 +998,7 @@ def summarize_nba_team(
     scored_points = [opponent for _, opponent in completed_scores if opponent is not None]
     points_allowed = _average(scored_points) or _stat_per_game(values, games, "points", "against")
     current_roster = _roster_membership(current_roster_records, team_id)
+    roster_snapshot = _current_roster_snapshot(current_roster_records, team_id)
     historical_context = None
     historical_players: list[dict[str, Any]] = []
     if historical_season is not None and historical_player_records is not None:
@@ -773,6 +1063,7 @@ def summarize_nba_team(
         "form": _nba_form(game_records, team_id),
         "notable_players": notable_players,
         "notable_players_source": notable_players_source,
+        "current_roster": roster_snapshot,
         "historical_player_context": historical_context,
     }
 
@@ -787,20 +1078,24 @@ async def _optional_get(league: str, endpoint: str, params: dict[str, Any]) -> A
 async def fetch_nfl_matchup_insights(home_team: str, away_team: str, season: int) -> dict[str, Any]:
     """Build NFL team context from completed team box scores and season QB stats."""
 
-    home, away = await asyncio.gather(
-        _resolve_team("nfl", home_team, season), _resolve_team("nfl", away_team, season)
+    home, away, league_games_payload = await asyncio.gather(
+        _resolve_team("nfl", home_team, season),
+        _resolve_team("nfl", away_team, season),
+        _optional_get("nfl", "games", {"league": 1, "season": season}),
     )
+    league_completed_games = [game for game in _records(league_games_payload) if _completed_game(game)]
 
     async def team_context(team: dict[str, Any], name: str) -> dict[str, Any]:
         team_id = str(team["id"])
         games = _records(await _get("nfl", "games", {"league": 1, "season": season, "team": team_id}))
-        completed = [game for game in games if _completed_game(game)]
+        completed = sorted((game for game in games if _completed_game(game)), key=_nfl_game_timestamp)
         completed = completed[-MAX_NFL_COMPLETED_GAMES:]
         if not completed:
             raise ApiSportsUnavailable(f"API-Sports has no completed {season} NFL games for {name} yet.")
         completed_with_ids = [(game, _game_id(game)) for game in completed]
         completed_with_ids = [(game, game_id) for game, game_id in completed_with_ids if game_id]
-        stat_payloads, event_payloads, roster_payload = await asyncio.gather(
+        return_context_games = completed_with_ids[-MAX_NFL_QUARTERBACK_RETURN_GAMES:]
+        stat_payloads, event_payloads, roster_payload, injuries_payload, return_player_payloads = await asyncio.gather(
             asyncio.gather(
                 *[_get("nfl", "games/statistics/teams", {"id": game_id}) for _, game_id in completed_with_ids],
                 return_exceptions=True,
@@ -810,6 +1105,17 @@ async def fetch_nfl_matchup_insights(home_team: str, away_team: str, season: int
                 return_exceptions=True,
             ),
             _optional_get("nfl", "players", {"team": team_id, "season": season}),
+            # API-Sports NFL returns its current injury report by team. Unlike
+            # its game and player-stat endpoints, this endpoint does not accept
+            # league or season filters.
+            _optional_get("nfl", "injuries", {"team": team_id}),
+            asyncio.gather(
+                *[
+                    _optional_get("nfl", "games/statistics/players", {"id": game_id, "team": team_id, "group": "passing"})
+                    for _, game_id in return_context_games
+                ],
+                return_exceptions=True,
+            ),
             return_exceptions=True,
         )
         samples: list[dict[str, float | None]] = []
@@ -826,8 +1132,12 @@ async def fetch_nfl_matchup_insights(home_team: str, away_team: str, season: int
                 samples.append(sample)
         if not samples:
             raise first_error or ApiSportsUnavailable(f"API-Sports returned no team box-score data for {name}.")
+        roster_records = _records(roster_payload) if not isinstance(roster_payload, Exception) else []
+        injury_records = (
+            None if injuries_payload is None or isinstance(injuries_payload, Exception) else _records(injuries_payload)
+        )
         quarterbacks = [
-            player for player in _records(roster_payload)
+            player for player in roster_records
             if str(player.get("position") or "").upper() in {"QB", "QUARTERBACK"}
         ][:MAX_NFL_QUARTERBACKS]
         quarterback_payloads = await asyncio.gather(
@@ -842,7 +1152,23 @@ async def fetch_nfl_matchup_insights(home_team: str, away_team: str, season: int
                 player = dict(record.get("player") or {})
                 player["position"] = quarterback.get("position") or "QB"
                 quarterback_records.append({**record, "player": player})
-        return summarize_nfl_samples(name, samples, quarterback_records)
+        context = summarize_nfl_samples(name, samples, quarterback_records)
+        context["opponent_strength"] = nfl_opponent_strength_context(league_completed_games, team_id)
+        context["availability"] = _nfl_key_availability(injury_records, roster_records)
+        return_samples = []
+        for (game, _), payload in zip(return_context_games, return_player_payloads, strict=False):
+            passing_stats_available = payload is not None and not isinstance(payload, Exception)
+            points_for, _ = _score_for_team(game, team_id)
+            return_samples.append(
+                {
+                    "date": _nfl_game_date(game),
+                    "points_for": points_for,
+                    "passing_stats_available": passing_stats_available,
+                    "quarterback": _nfl_game_passing_leader(_records(payload)) if passing_stats_available else None,
+                }
+            )
+        context["quarterback_return_context"] = quarterback_return_context(return_samples)
+        return context
 
     home_context, away_context = await asyncio.gather(team_context(home, home_team), team_context(away, away_team))
     return {

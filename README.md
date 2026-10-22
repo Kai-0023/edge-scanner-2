@@ -36,6 +36,7 @@ Copy `.env.example` to `.env` and add your own key when you are ready to connect
 - `GET /venue-context/{league}?home_team=...` resolves the location from the home team only. For NFL, add `game_time_local` to include Open-Meteo venue weather.
 - `GET /insights/nfl?home_team=...&away_team=...&season=2026` returns authorized season-to-date NFL QB, offense, defense, and red-zone context.
 - `GET /insights/nba?home_team=...&away_team=...&season=2026` returns authorized NBA team averages, completed-game form, current notable-player statistics, and a separately labeled prior-season player reference.
+- `GET /insights/{league}/ai?home_team=...&away_team=...&season=2026` optionally asks Google AI Studio Gemini to write a research summary of the selected API-Sports response. It does not fetch facts itself or provide a betting instruction.
 - `POST /tracking/ocr` reads a slip image in memory when local OCR is installed. `POST /tracking/entries` stores only fields the user reviews and confirms.
 
 ## Live-data note
@@ -75,9 +76,23 @@ API_SPORTS_NBA_KEY=your_nba_key
 
 If one API-Sports key is authorized for both subscriptions, use `API_SPORTS_KEY` instead. The dashboard sends these keys only from the FastAPI server to the corresponding API-Sports endpoint; browser JavaScript never receives them.
 
+### Optional AI-written matchup summary
+
+The **Generate AI summary** button is optional. It sends the selected API-Sports matchup response from FastAPI to Google AI Studio Gemini and displays the returned research explanation beneath the factual team cards. Gemini does not replace roster, injury, or team data; API-Sports remains the factual source.
+
+Add one of these local environment-variable names (only one is needed), then restart FastAPI:
+
+```text
+GEMINI_API_KEY=your_google_ai_studio_key
+# Or: GOOGLE_API_KEY=your_google_ai_studio_key
+# Optional: GEMINI_MODEL=gemini-3.8-flash
+```
+
+The key is used only by server-side FastAPI and is not sent to the browser. The app labels the output as AI-generated, tells Gemini not to invent live facts, and never treats the generated text as a prediction, instruction, or guarantee.
+
 ### Team insights
 
-From an NFL event, choose **Analyze matchup** to review season-to-date quarterback passing/rushing, team scoring, pass/rush production, sacks, interceptions, and red-zone touchdown rates. From an NBA event, the same action shows current team averages, completed-game form, current player logs, and availability only when the provider returns it. NBA player entries are displayed only after the provider's current roster endpoint confirms the player for that selected team, using player IDs before name matching. If the roster response explicitly identifies a different team or cannot be verified, the app hides player data instead of showing another team's players. It also shows a clearly separate prior-season player reference so established players who are resting or absent from preseason game logs are not hidden. Prior-season data does not affect the current-season scoring blend and must not be treated as a current roster or availability confirmation. Both feeds are cached for 15 minutes to reduce API usage.
+From an NFL event, choose **Analyze matchup** to review season-to-date quarterback passing/rushing, team scoring, pass/rush production, sacks, interceptions, and red-zone touchdown rates. The NFL **Opponent strength** tab compares scoring against stronger and weaker defenses and points allowed against premier and weaker offenses. Positive offensive deltas mean a team scored above opponents' usual allowance; positive defensive deltas mean it held opponents below their usual scoring. The **Key availability** tab lists provider-reported notices for quarterbacks, skill positions, and defensive impact positions when the provider returns them. It also identifies a recent quarterback return-to-action pattern when the latest primary passer lacks a passing-stat record in consecutive prior games, then compares team scoring during that gap with the return game. This pattern is not proof of an injury, an official inactive designation, or an offense fully returning to normal. Neither availability nor return context changes the scoring blend. From an NBA event, the analysis is organized into **Overview**, **Players**, **Matchup context**, and **AI summary** tabs. The Players view lists current roster names and positions, plus current and historical player context when returned. Provider IDs and internal roster-verification fields remain on the server: NBA player entries are displayed only after the server confirms them against the selected team, and cross-team or unconfirmed records are hidden. The app does not infer a starting five from a roster; users must confirm official starters close to tipoff. Prior-season data is separate from the current-season scoring blend and must not be treated as a current roster or availability confirmation. Both feeds are cached for 15 minutes to reduce API usage.
 
 Read the [NBA Team Insights Guide](docs/nba-team-insights.md) and [NFL Team Insights Guide](docs/nfl-team-insights.md) for definitions, data limits, provider field mapping, and API response structures.
 

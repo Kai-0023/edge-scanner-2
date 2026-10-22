@@ -62,3 +62,5 @@ def test_matchup_summary_blends_each_offense_with_opponent_defense() -> None:
     assert summary["estimated_away_points"] == 21.0
     assert summary["estimated_total"] == 46.5
     assert summary["estimated_home_margin"] == 4.5
+    assert "not added to this scoring blend" in summary["opponent_strength_note"]
+    assert "not confirmation of game-day active status" in summary["availability_note"]

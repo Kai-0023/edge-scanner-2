@@ -1,6 +1,50 @@
 """Tests for the API-Sports normalization layer without live provider calls."""
 
-from scrapers.api_sports_scraper import _nfl_stat_sample, summarize_nba_team, summarize_nfl_samples
+from scrapers.api_sports_scraper import (
+    _box_score_contribution,
+    _nfl_key_availability,
+    _nfl_stat_sample,
+    summarize_nba_team,
+    summarize_nfl_samples,
+)
+
+
+def test_box_score_contribution_includes_points_rebounds_assists_steals_and_blocks() -> None:
+    assert _box_score_contribution(20, 5, 7, 2, 1) == 35
+    assert _box_score_contribution(None, None, None, 2, 1) is None
+
+
+def test_nfl_key_availability_retains_only_tracked_skill_and_defensive_positions() -> None:
+    result = _nfl_key_availability(
+        [
+            {"player": {"id": 10, "name": "Starting QB"}, "status": "Out", "reason": "Shoulder"},
+            {"player": {"id": 20, "name": "Lead Back"}, "type": "Questionable", "reason": "Ankle"},
+            {"player": {"id": 30, "name": "Edge Rusher"}, "status": "Doubtful", "description": "Knee"},
+            {"player": {"id": 40, "name": "Starting Guard"}, "status": "Out", "reason": "Foot"},
+        ],
+        [
+            {"id": 10, "name": "Starting QB", "position": "QB"},
+            {"id": 20, "name": "Lead Back", "position": "RB"},
+            {"id": 30, "name": "Edge Rusher", "position": "DE"},
+            {"id": 40, "name": "Starting Guard", "position": "G"},
+        ],
+    )
+
+    assert result["available"] is True
+    assert [(player["position"], player["name"]) for player in result["players"]] == [
+        ("QB", "Starting QB"),
+        ("RB", "Lead Back"),
+        ("DE", "Edge Rusher"),
+    ]
+    assert result["players"][0]["status"] == "Out"
+    assert result["players"][2]["reason"] == "Knee"
+
+
+def test_nfl_key_availability_marks_missing_provider_data_unavailable() -> None:
+    result = _nfl_key_availability(None, [])
+
+    assert result["available"] is False
+    assert result["players"] == []
 
 
 def test_nfl_samples_create_per_game_context_and_quarterback_summary() -> None:
@@ -340,6 +384,12 @@ def test_nba_current_players_exclude_players_not_on_the_confirmed_roster() -> No
 
     assert result["notable_players_source"] == "current_season"
     assert [player["name"] for player in result["notable_players"]] == ["Thunder Player"]
+    assert result["current_roster"] == {
+        "team_id": "1",
+        "verified": True,
+        "count": 1,
+        "players": [{"id": "2", "name": "Thunder Player", "position": "—"}],
+    }
 
 
 def test_nba_roster_player_ids_take_priority_over_matching_names() -> None:
@@ -354,6 +404,12 @@ def test_nba_roster_player_ids_take_priority_over_matching_names() -> None:
 
     assert result["notable_players_source"] == "unavailable"
     assert result["notable_players"] == []
+    assert result["current_roster"] == {
+        "team_id": "1",
+        "verified": True,
+        "count": 1,
+        "players": [{"id": "7", "name": "Jordan Example", "position": "—"}],
+    }
 
 
 def test_nba_explicit_wrong_team_roster_response_hides_player_data() -> None:
@@ -368,3 +424,9 @@ def test_nba_explicit_wrong_team_roster_response_hides_player_data() -> None:
 
     assert result["notable_players_source"] == "unavailable"
     assert result["notable_players"] == []
+    assert result["current_roster"] == {
+        "team_id": "1",
+        "verified": False,
+        "count": 0,
+        "players": [],
+    }

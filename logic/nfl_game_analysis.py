@@ -133,5 +133,13 @@ def matchup_summary(home: dict[str, Any], away: dict[str, Any]) -> dict[str, Any
         "estimated_away_points": away_points,
         "estimated_total": projected_total,
         "estimated_home_margin": projected_home_margin,
+        "opponent_strength_note": (
+            "Opponent-strength results are shown separately and are not added to this scoring blend. "
+            "A positive offensive delta means a team scored above its opponents' usual allowance; a positive defensive delta means it held opponents below their usual scoring."
+        ),
+        "availability_note": (
+            "Reported QB, skill-position, and defensive-player availability notices are shown separately. "
+            "They are not confirmation of game-day active status and are not added to this scoring blend."
+        ),
         "disclaimer": "This is descriptive season-to-date context, not a validated prediction, probability, or guaranteed bet.",
     }

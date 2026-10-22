@@ -19,6 +19,8 @@ from backend.database import (
     save_tracking_entry,
 )
 from logic.matchup_insights import nfl_matchup_insight, nba_matchup_insight
+from logic.ai_matchup_analysis import AiAnalysisUnavailable, generate_ai_matchup_analysis
+from logic.matchup_presentation import public_matchup_payload
 from logic.nba_logic import nba_player_summary
 from logic.nfl_logic import nfl_player_summary
 from logic.projection_models import nfl_projection, nba_projection
@@ -250,7 +252,7 @@ async def nfl_team_insights(
     """
 
     try:
-        return await fetch_nfl_matchup_insights(home_team, away_team, season)
+        return public_matchup_payload(await fetch_nfl_matchup_insights(home_team, away_team, season))
     except ApiSportsUnavailable as exc:
         return {
             "available": False,
@@ -270,7 +272,7 @@ async def nba_team_insights(
     """Return authorized NBA team and notable-player context for one game."""
 
     try:
-        return await fetch_nba_matchup_insights(home_team, away_team, season)
+        return public_matchup_payload(await fetch_nba_matchup_insights(home_team, away_team, season))
     except ApiSportsUnavailable as exc:
         return {
             "available": False,
@@ -279,6 +281,34 @@ async def nba_team_insights(
             "reason": str(exc),
             "disclaimer": "No player, injury, or team values were estimated without an authorized stats response.",
         }
+
+
+@app.get("/insights/{league}/ai")
+async def ai_matchup_analysis(
+    league: Literal["nba", "nfl"],
+    home_team: str = Query(..., min_length=2, description="Designated home team from the selected odds event."),
+    away_team: str = Query(..., min_length=2, description="Designated away team from the selected odds event."),
+    season: int = Query(..., ge=2020, le=2100, description="Season start year, such as 2026."),
+) -> dict[str, Any]:
+    """Generate an optional Gemini research summary from API-Sports facts."""
+
+    try:
+        matchup = (
+            await fetch_nba_matchup_insights(home_team, away_team, season)
+            if league == "nba"
+            else await fetch_nfl_matchup_insights(home_team, away_team, season)
+        )
+    except ApiSportsUnavailable as exc:
+        return {
+            "available": False,
+            "source": "Google AI Studio Gemini",
+            "reason": f"Factual matchup data is unavailable, so an AI summary was not generated: {exc}",
+        }
+
+    try:
+        return await generate_ai_matchup_analysis(league, matchup)
+    except AiAnalysisUnavailable as exc:
+        return {"available": False, "source": "Google AI Studio Gemini", "reason": str(exc)}
 
 
 @app.post("/tracking/ocr")
