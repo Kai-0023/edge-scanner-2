@@ -8,6 +8,7 @@ browser.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -18,6 +19,9 @@ from logic.matchup_presentation import public_matchup_payload
 
 GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 MAX_ANALYSIS_CHARACTERS = 2_400
+# Reuse Uvicorn's configured server logger so this audit trail appears in
+# normal FastAPI output without requiring a separate logging configuration.
+LOGGER = logging.getLogger("uvicorn.error")
 
 
 class AiAnalysisUnavailable(RuntimeError):
@@ -116,6 +120,9 @@ async def generate_ai_matchup_analysis(league: str, matchup: dict[str, Any]) -> 
         "input": build_analysis_input(league, matchup),
         "generation_config": {"thinking_level": "low", "max_output_tokens": 450},
     }
+    # Keep the verification trail useful without logging the API key, prompt,
+    # matchup payload, or Google error body.
+    LOGGER.info("Gemini request started: league=%s model=%s", league, settings.gemini_model)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -124,11 +131,13 @@ async def generate_ai_matchup_analysis(league: str, matchup: dict[str, Any]) -> 
                 json=request_body,
             )
     except httpx.HTTPError as exc:
+        LOGGER.warning("Gemini request could not reach Google AI Studio: error_type=%s", type(exc).__name__)
         raise AiAnalysisUnavailable("The AI summary service could not be reached. Try again shortly.") from exc
 
     if response.is_error:
         # Provider errors can include sensitive implementation details. The
         # app needs only a useful status, not Google’s full response body.
+        LOGGER.warning("Gemini request returned HTTP status=%s", response.status_code)
         if response.status_code in {401, 403}:
             message = "Google AI Studio rejected the configured key or model. Confirm the key and enabled model, then restart the app."
         elif response.status_code == 429:
@@ -143,6 +152,13 @@ async def generate_ai_matchup_analysis(league: str, matchup: dict[str, Any]) -> 
         raise AiAnalysisUnavailable("Google AI Studio returned an unreadable summary response.") from exc
     if not output:
         raise AiAnalysisUnavailable("Google AI Studio returned no written summary for this matchup.")
+
+    LOGGER.info(
+        "Gemini request completed: league=%s model=%s output_characters=%s",
+        league,
+        settings.gemini_model,
+        len(output),
+    )
 
     return {
         "available": True,
